@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <link rel="stylesheet" href="popup.css" />
+  <title>쓰레드 레퍼런스 수집기</title>
+</head>
+<body>
+  <header class="head">
+    <div class="head-row">
+      <strong>쓰레드 레퍼런스 수집기</strong>
+      <label class="switch">
+        <input type="checkbox" id="collecting" />
+        <span>수집</span>
+      </label>
+    </div>
+    <div class="stats" id="stats">-</div>
+    <div id="notOnThreads" class="warn hidden">
+      threads.com 탭에서 열어야 수집이 동작합니다. <a href="#" id="openThreads">피드 열기</a>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="collect">수집</button>
+    <button class="tab" data-tab="keywords">키워드</button>
+    <button class="tab" data-tab="suggest">추천 <span class="dot hidden" id="suggestDot"></span></button>
+    <button class="tab" data-tab="results">결과</button>
+  </nav>
+
+  <main>
+    <!-- 수집 -->
+    <section class="panel active" data-panel="collect">
+      <label class="row"><input type="checkbox" id="autoScroll" /> 자동 스크롤로 계속 수집</label>
+      <label class="row">스크롤 간격
+        <input type="number" id="autoScrollDelayMs" min="1000" step="500" class="num" /> ms
+      </label>
+      <label class="row"><input type="checkbox" id="highlight" /> 수집된 글을 페이지에서 표시</label>
+      <label class="row">최소 글자 수 <input type="number" id="minChars" min="0" class="num" /></label>
+      <label class="row">추천 재계산 주기 <input type="number" id="suggestEvery" min="10" step="10" class="num" /> 건</label>
+
+      <div class="sep"></div>
+      <p class="hint">키워드로 바로 검색해서 수집하기</p>
+      <div class="row">
+        <select id="searchKeyword" class="grow"></select>
+        <button id="openSearch">검색 열기</button>
+      </div>
+    </section>
+
+    <!-- 키워드 -->
+    <section class="panel" data-panel="keywords">
+      <p class="hint">승인(<b>수집중</b>)된 그룹의 키워드만 수집에 쓰입니다. 대기 중인 그룹은 컨펌해야 반영됩니다.</p>
+      <div id="groups"></div>
+      <div class="sep"></div>
+      <div class="row">
+        <input type="text" id="newKeyword" class="grow" placeholder="키워드 직접 추가 (예: 어디서 사셨어요)" />
+        <button id="addKeyword">추가</button>
+      </div>
+    </section>
+
+    <!-- 추천 -->
+    <section class="panel" data-panel="suggest">
+      <p class="hint">수집한 글에서 자동으로 뽑은 새 키워드 후보입니다. <b>승인하기 전에는 수집에 쓰이지 않습니다.</b></p>
+      <div class="row">
+        <button id="runSuggest">지금 다시 뽑기</button>
+        <span class="muted" id="corpusInfo"></span>
+      </div>
+      <div id="suggestions"></div>
+    </section>
+
+    <!-- 결과 -->
+    <section class="panel" data-panel="results">
+      <div class="row">
+        <select id="filterGroup" class="grow"></select>
+        <button id="exportCsv">CSV</button>
+        <button id="exportJson">JSON</button>
+        <button id="exportMd">MD</button>
+      </div>
+      <div class="row">
+        <input type="search" id="search" class="grow" placeholder="결과 내 검색" />
+        <button id="clearPosts" class="danger">전체 삭제</button>
+      </div>
+      <div id="results"></div>
+    </section>
+  </main>
+
+  <script src="popup.js"></script>
+</body>
+</html>
