@@ -81,7 +81,8 @@ tests/
 └── matcher.test.js        매칭 · 오탐 · 추천 회귀 테스트 33개
 tools/
 ├── check.sh               manifest + 문법 + 테스트 + 문서 최신 여부 일괄 점검
-└── gen_keyword_doc.py     keywords.js -> docs/KEYWORDS.md 생성
+├── gen_keyword_doc.py     keywords.js -> docs/KEYWORDS.md 생성
+└── harness/               크롬에 설치하지 않고 브라우저에서 팝업+background 실행
 ```
 
 ## 테스트
@@ -101,6 +102,15 @@ manifest JSON 유효성 → 전체 소스 문법 검사 → 회귀 테스트 33�
 ```bash
 python3 tools/gen_keyword_doc.py
 ```
+
+UI 를 고칠 때는 크롬에 매번 다시 로드하지 말고 개발용 하네스를 쓰세요.
+`chrome.*` 를 인메모리 스텁으로 대체해 팝업과 background 를 그대로 브라우저에서 돌립니다.
+
+```bash
+./tools/harness/serve.sh
+```
+
+열린 페이지의 콘솔에서 `await __seed()` 를 호출하면 가짜 글 5건이 수집 파이프라인을 통과합니다.
 
 ## 내보내기 포맷
 

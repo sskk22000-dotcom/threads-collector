@@ -79,6 +79,21 @@ function renderSuggestions() {
     : '<div class="empty">후보 없음. 글을 조금 더 수집한 뒤 “지금 다시 뽑기”를 눌러보세요.</div>';
 }
 
+/**
+ * 키워드는 공백을 뺀 정규화 형태라 원문과 그대로 일치하지 않는다.
+ * 글자 사이에 공백/문장부호가 끼어드는 것을 허용하는 패턴으로 하이라이트한다.
+ * (HTML 엔티티를 쪼갤 위험이 없도록 한글/영숫자 키워드에만 적용)
+ */
+function highlight(escapedHtml, keyword) {
+  if (!/^[가-힣a-z0-9]+$/i.test(keyword)) return escapedHtml;
+  const pattern = keyword.split('').join('[\\s·,.!?~\\-_]{0,3}');
+  try {
+    return escapedHtml.replace(new RegExp(pattern, 'gi'), (m) => `<span class="kw">${m}</span>`);
+  } catch {
+    return escapedHtml;
+  }
+}
+
 function renderResults() {
   const groupFilter = $('#filterGroup').value;
   const q = query.trim().toLowerCase();
@@ -91,10 +106,7 @@ function renderResults() {
   $('#results').innerHTML = items.length
     ? items.map((p) => {
         let text = esc(p.text.slice(0, 400));
-        for (const kw of p.keywords || []) {
-          const safe = esc(kw).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          text = text.replace(new RegExp(safe, 'g'), (m) => `<span class="kw">${m}</span>`);
-        }
+        for (const kw of p.keywords || []) text = highlight(text, kw);
         return `
           <div class="post">
             <div class="post-head">
