@@ -17,15 +17,26 @@ Threads(쓰레드) 피드를 보면서 **구매 의도 키워드가 들어간 �
 
 ## 설치
 
-1. 이 저장소를 내려받습니다.
-   ```bash
-   git clone https://github.com/sskk22000-dotcom/threads-collector.git
-   ```
-2. 크롬 주소창에 `chrome://extensions` 입력 → 우측 상단 **개발자 모드** 켜기
-3. **압축해제된 확장 프로그램을 로드합니다** 클릭 → 내려받은 폴더 안의 **`extension`** 폴더 선택
-4. 툴바에 돋보기 아이콘이 뜨면 설치 완료. 고정(📌)해두면 편합니다.
+크롬 웹스토어가 아니라 **폴더를 직접 불러오는 방식**입니다. 자세한 그림 설명과 문제 해결은 [docs/INSTALL.md](docs/INSTALL.md).
 
-> 크롬 웹스토어에 올라간 확장이 아니라 로컬 로드 방식이라, 크롬을 껐다 켜도 유지되지만 폴더를 옮기거나 지우면 동작하지 않습니다.
+**그냥 쓰기만 할 컴퓨터 (윈도우 포함)** — git 없이 zip 하나만 받으면 됩니다.
+
+1. [최신 릴리스](https://github.com/sskk22000-dotcom/threads-collector/releases/latest)에서 `threads-collector-vX.Y.Z.zip` 내려받기
+2. **지우지 않을 위치**에 압축 풀기 (예: `C:\Users\<내이름>\chrome-extensions\`)
+   — 크롬이 이 폴더를 계속 참조하므로 지우거나 옮기면 확장이 죽습니다
+3. `chrome://extensions` → 우측 상단 **개발자 모드** 켜기
+4. **압축해제된 확장 프로그램을 로드합니다** → `manifest.json` 이 들어있는 폴더 선택
+5. 툴바 퍼즐(🧩) 아이콘에서 압정(📌)으로 고정
+
+**개발도 할 컴퓨터**
+
+```bash
+git clone https://github.com/sskk22000-dotcom/threads-collector.git
+```
+
+불러올 폴더는 저장소 안의 **`extension`** 폴더입니다.
+
+> 컴퓨터 두 대에서 쓰면 수집 데이터와 키워드 승인 상태는 **각각 따로 저장됩니다.** 자동 동기화되지 않습니다.
 
 ## 사용법 (3단계)
 
@@ -81,6 +92,7 @@ tests/
 └── matcher.test.js        매칭 · 오탐 · 추천 회귀 테스트 33개
 tools/
 ├── check.sh               manifest + 문법 + 테스트 + 문서 최신 여부 일괄 점검
+├── package.sh             배포용 zip 빌드 (점검 통과해야 생성됨)
 ├── gen_keyword_doc.py     keywords.js -> docs/KEYWORDS.md 생성
 └── harness/               크롬에 설치하지 않고 브라우저에서 팝업+background 실행
 ```
@@ -111,6 +123,19 @@ UI 를 고칠 때는 크롬에 매번 다시 로드하지 말고 개발용 하�
 ```
 
 열린 페이지의 콘솔에서 `await __seed()` 를 호출하면 가짜 글 5건이 수집 파이프라인을 통과합니다.
+
+## 배포용 zip 만들기
+
+```bash
+./tools/package.sh
+```
+
+`tools/check.sh` 를 먼저 돌려 통과해야만 `dist/threads-collector-v<버전>.zip` 이 만들어집니다.
+버전은 `extension/manifest.json` 의 `version` 을 따릅니다. 릴리스로 올리려면:
+
+```bash
+gh release create v1.0.1 dist/threads-collector-v1.0.1.zip --title "v1.0.1" --notes "변경 내용"
+```
 
 ## 내보내기 포맷
 
