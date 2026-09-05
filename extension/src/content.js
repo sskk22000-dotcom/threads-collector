@@ -50,15 +50,47 @@
   }
 
   /**
-   * 글인지 답글인지 판별한다.
-   *   - 글 상세 페이지: URL 의 글 = 원글, 나머지 = 답글 (확실)
-   *   - 그 외: "…님에게 답글" 표기가 있으면 답글 (없으면 판별 불가)
+   * 글 상세 페이지에서는 DOM 순서로 확실하게 갈린다.
+   *   - 페이지 주소의 글보다 "앞"에 있는 항목 = 조상(원글)
+   *   - 뒤에 있는 항목 = 그 글에 달린 답글
+   * 답글 permalink 를 열면 위에 원글이 먼저 그려지므로 이 규칙이 그대로 통한다.
+   *
+   * 피드/검색에서는 "…님에게 답글" 표기로만 판단하고, 없으면 판별하지 않는다.
    */
-  function detectType(container, postId) {
-    if (PAGE_POST_ID) return postId === PAGE_POST_ID ? 'post' : 'reply';
-    const head = (container.innerText || '').slice(0, 160);
-    if (REPLY_MARK.test(head)) return 'reply';
-    return 'unknown';
+  function classify(entries) {
+    const ids = [...entries.keys()];
+
+    if (PAGE_POST_ID && ids.includes(PAGE_POST_ID)) {
+      const pivot = ids.indexOf(PAGE_POST_ID);
+      const rootId = ids[0];
+      const rootUrl = entries.get(rootId).post.url;
+
+      ids.forEach((id, i) => {
+        const entry = entries.get(id);
+        if (i < pivot) {
+          // 페이지 글보다 앞 = 원글 쪽 사슬
+          entry.post.type = 'post';
+          entry.post.parentId = i > 0 ? rootId : null;
+          entry.post.parentUrl = i > 0 ? rootUrl : null;
+        } else if (i === pivot) {
+          entry.post.type = pivot > 0 ? 'reply' : 'post';
+          entry.post.parentId = pivot > 0 ? rootId : null;
+          entry.post.parentUrl = pivot > 0 ? rootUrl : null;
+        } else {
+          entry.post.type = 'reply';
+          entry.post.parentId = rootId;
+          entry.post.parentUrl = rootUrl;
+        }
+      });
+      return;
+    }
+
+    for (const entry of entries.values()) {
+      const head = (entry.container.innerText || '').slice(0, 160);
+      entry.post.type = REPLY_MARK.test(head) ? 'reply' : 'unknown';
+      entry.post.parentId = null;
+      entry.post.parentUrl = null;
+    }
   }
 
   function cleanText(container, author) {
@@ -175,9 +207,6 @@
       const prev = byId.get(postId);
       if (prev && prev.container.contains(container) === false) continue;
 
-      const type = detectType(container, postId);
-      if (type === 'reply' && settings.collectReplies === false) continue;
-
       const text = cleanText(container, author);
       const isReference = accountHandles.has(author.toLowerCase());
       if (!isReference && text.length < (settings.minChars || 10)) continue;
@@ -191,7 +220,9 @@
           authorUrl: `${location.origin}/@${author}`,
           url: `${location.origin}/@${author}/post/${postId}`,
           text,
-          type,
+          type: 'unknown',
+          parentId: null,
+          parentUrl: null,
           postedAt: timeEl ? timeEl.getAttribute('datetime') : null,
           countsRaw: readCountSources(container),
           images: readImages(container, author),
@@ -200,6 +231,8 @@
         }
       });
     }
+
+    classify(byId);
     return byId;
   }
 
@@ -229,9 +262,11 @@
 
     const posts = [];
     for (const [id, entry] of found) {
+      if (entry.post.type === 'reply' && settings.collectReplies === false) continue;
       sentIds.add(id);
       posts.push(entry.post);
     }
+    if (!posts.length) return;
 
     let res;
     try {
@@ -302,7 +337,7 @@
    * 페이지와 같은 출처로 한 번에 하나씩만, 간격도 매번 다르게 요청한다.
    */
   async function enrichStep() {
-    if (!settings.collecting || settings.enrichViews === false) return;
+    if (!settings.collecting) return;
     if (enrichedThisRun >= (settings.enrichMaxPerRun || 40)) return;
 
     let res;
@@ -315,18 +350,30 @@
     const job = res && res.job;
     if (job) {
       enrichedThisRun += 1;
-      let views = null;
+      let html = '';
       try {
         const response = await fetch(job.url, { credentials: 'include' });
-        if (response.ok) {
-          const { extractViewCount } = await getCounts();
-          views = extractViewCount(await response.text());
-        }
-      } catch {
-        views = null;   // 실패해도 다시 시도하지 않는다 (background 가 확인 시각을 남김)
-      }
+        if (response.ok) html = await response.text();
+      } catch { /* 실패해도 확인한 것으로 남긴다 */ }
+
       try {
-        await chrome.runtime.sendMessage({ type: 'ENRICH_RESULT', id: job.id, views });
+        const { extractViewCount, extractOgPost } = await getCounts();
+        if (job.kind === 'parent') {
+          const og = html ? extractOgPost(html) : { text: null, author: null };
+          await chrome.runtime.sendMessage({
+            type: 'PARENT_RESULT',
+            id: job.id,
+            text: og.text,
+            author: og.author,
+            views: html ? extractViewCount(html) : null
+          });
+        } else {
+          await chrome.runtime.sendMessage({
+            type: 'ENRICH_RESULT',
+            id: job.id,
+            views: html ? extractViewCount(html) : null
+          });
+        }
       } catch { /* noop */ }
     }
 
@@ -336,7 +383,7 @@
 
   function applyEnrich() {
     clearTimeout(enrichTimer);
-    if (!settings.collecting || settings.enrichViews === false) return;
+    if (!settings.collecting) return;
     enrichTimer = setTimeout(enrichStep, 4000 + Math.random() * 4000);
   }
 

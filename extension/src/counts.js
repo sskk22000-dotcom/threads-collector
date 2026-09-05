@@ -85,3 +85,75 @@ export function extractViewCount(html) {
   }
   return null;
 }
+
+/**
+ * 부모 글(판매자 글)의 본문을 상세 페이지 HTML 에서 뽑는다.
+ *
+ * 쓰레드는 permalink 페이지에 og:description 으로 글 본문을,
+ * og:title 로 "작성자 (@handle) on Threads" 를 넣어준다. 임베드 JSON 을
+ * 헤집는 것보다 이쪽이 훨씬 덜 깨진다.
+ */
+export function extractOgPost(html) {
+  if (!html) return { text: null, author: null };
+
+  const pick = (prop) => {
+    const re = new RegExp(`<meta[^>]+(?:property|name)=["']${prop}["'][^>]*content=["']([^"']*)["']`, 'i');
+    const alt = new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]*(?:property|name)=["']${prop}["']`, 'i');
+    const m = html.match(re) || html.match(alt);
+    return m ? decodeEntities(m[1]) : null;
+  };
+
+  const description = pick('og:description') || pick('description');
+  const title = pick('og:title');
+  const author = title ? (title.match(/\(@([A-Za-z0-9._]+)\)/) || [])[1] || null : null;
+
+  return { text: description ? description.trim() : null, author };
+}
+
+function decodeEntities(s) {
+  return String(s)
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&apos;/g, "'")
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(Number(d)))
+    .replace(/&amp;/g, '&');
+}
+
+/**
+ * 수집 기준(게이트). 키워드가 맞아도 반응이 없는 글은 담지 않기 위한 관문.
+ *
+ * @param {{likes:?number, replies:?number}} counts
+ * @param {{minLikes:number, minReplies:number, gateMode:'or'|'and', gateAllowUnknown:boolean}} rule
+ * @returns {'pass'|'fail'|'unknown'}  unknown = 수치를 못 읽어 판단 불가
+ */
+export function gateResult(counts, rule) {
+  const minLikes = Number(rule.minLikes) || 0;
+  const minReplies = Number(rule.minReplies) || 0;
+  if (!minLikes && !minReplies) return 'pass';
+
+  const likes = counts ? counts.likes : null;
+  const replies = counts ? counts.replies : null;
+
+  const checks = [];
+  if (minLikes) checks.push(likes === null || likes === undefined ? null : likes >= minLikes);
+  if (minReplies) checks.push(replies === null || replies === undefined ? null : replies >= minReplies);
+
+  const known = checks.filter((c) => c !== null);
+  if (!known.length) return 'unknown';
+  const allKnown = known.length === checks.length;
+
+  if (rule.gateMode === 'and') {
+    if (known.some((k) => !k)) return 'fail';   // 하나라도 미달이면 확정 탈락
+    return allKnown ? 'pass' : 'unknown';       // 남은 조건을 모르면 단정하지 않는다
+  }
+
+  // or 모드
+  if (known.some(Boolean)) return 'pass';
+  return allKnown ? 'fail' : 'unknown';         // 아직 모르는 조건이 통과시킬 수도 있다
+}
+
+/** 게이트 결과를 실제 수집 여부로 바꾼다. */
+export function shouldCollect(counts, rule) {
+  const r = gateResult(counts, rule);
+  if (r === 'unknown') return rule.gateAllowUnknown !== false;
+  return r === 'pass';
+}

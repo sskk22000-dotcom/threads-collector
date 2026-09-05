@@ -1,10 +1,10 @@
 /** 상태의 단일 소유자. 매칭 · 저장 · 추천 · 내보내기를 전부 여기서 처리한다. */
 
 import { KEYS, DEFAULT_SETTINGS, DEFAULT_STATS, DEFAULT_VIEW_FILTERS, getAll, set, ensureSeeded } from './storage.js';
-import { matchKeywords, snippetAround } from './matcher.js';
+import { matchKeywords, snippetAround, isKorean } from './matcher.js';
 import { suggestKeywords } from './suggest.js';
 import { ACCOUNT_GROUP, findAccount, normalizeHandle, normalizeSearchTerm } from './accounts.js';
-import { parseCount } from './counts.js';
+import { parseCount, shouldCollect } from './counts.js';
 
 const CORPUS_MAX = 400;
 const KIND_LABEL = { post: '글', reply: '답글', unknown: '판별 불가' };
@@ -36,88 +36,200 @@ function ensureCustomGroup(groups) {
 
 /* -------------------------------------------------------------- 핵심 로직 */
 
+/**
+ * 판매자 원글 레코드를 찾거나 만든다.
+ *
+ * 판매자 원글에는 "어디서 사요" 같은 구매 키워드가 없다. 그래서 키워드 매칭만으로는
+ * 절대 저장되지 않는다. 대신 같은 화면에서 함께 본 글(seen)이 있으면 그 내용으로
+ * 바로 채우고, 없으면 본문을 나중에 확인할 자리표시자를 만든다.
+ */
+function ensureParent(posts, byId, parentId, parentUrl, seen, gate) {
+  const existing = byId.get(parentId);
+  if (existing) return existing;
+
+  const fresh = seen.get(parentId);
+  const handle = (String(parentUrl || '').match(/\/@([^/]+)\/post\//) || [])[1] || '';
+
+  // 화면에서 같이 본 원글이면 수집 기준을 바로 적용한다
+  if (fresh && !shouldCollect(fresh.counts, gate)) return null;
+
+  const parent = fresh
+    ? {
+        ...fresh.post,
+        type: 'post',
+        counts: fresh.counts,
+        images: fresh.post.images || [],
+        links: fresh.post.links || [],
+        keywords: [],
+        groups: [],
+        groupLabels: [],
+        account: null,
+        inquiries: [],
+        pending: false,
+        collectedAt: new Date().toISOString()
+      }
+    : {
+        id: parentId,
+        url: parentUrl,
+        author: handle,
+        authorUrl: handle ? `https://www.threads.com/@${handle}` : null,
+        text: '',
+        type: 'post',
+        pending: true,                 // 본문/수치를 아직 못 읽음
+        counts: { views: null, likes: null, replies: null, reposts: null },
+        images: [],
+        links: [],
+        keywords: [],
+        groups: [],
+        groupLabels: [],
+        inquiries: [],
+        collectedAt: new Date().toISOString()
+      };
+
+  delete parent.countsRaw;
+  posts.push(parent);
+  byId.set(parentId, parent);
+  return parent;
+}
+
 async function handlePosts(incoming) {
   const state = await getAll();
   if (!state.settings.collecting) return { matched: [] };
 
-  const existingIds = new Set(state.posts.map((p) => p.id));
-  const matched = [];
-  let posts = state.posts;
-  const corpus = state.corpus;
+  const settings = state.settings;
+  const gate = {
+    minLikes: settings.minLikes,
+    minReplies: settings.minReplies,
+    gateMode: settings.gateMode,
+    gateAllowUnknown: settings.gateAllowUnknown
+  };
 
+  let posts = state.posts;
+  const byId = new Map(posts.map((p) => [p.id, p]));
+  const matched = [];
+  const corpus = state.corpus;
+  const parentQueue = new Set(state.parentQueue);
+
+  // 1차: 이번에 화면에서 본 글을 전부 기록해 둔다.
+  // 판매자 원글은 키워드가 안 맞아 그냥 두면 버려지는데, 답글의 부모로 필요하다.
+  const seen = new Map();
+  for (const post of incoming) {
+    const raw = post.countsRaw || {};
+    seen.set(post.id, {
+      post,
+      counts: {
+        views: parseCount(raw.views),
+        likes: parseCount(raw.likes),
+        replies: parseCount(raw.replies),
+        reposts: parseCount(raw.reposts)
+      }
+    });
+  }
+
+  // 2차: 매칭하고 판매자 원글에 문의를 붙인다
   for (const post of incoming) {
     state.stats.scanned += 1;
     state.stats.sinceSuggest += 1;
-
     corpus.push(post.text);
 
-    const { hits, groups } = matchKeywords(post.text, state.groups, { onlyApproved: true });
+    // 외국어 글은 여기서 걸러낸다 (레퍼런스 계정 글은 예외)
     const account = findAccount(post.author, state.accounts);
+    const isReference = Boolean(account && account.collectAll);
+    if (settings.koreanOnly && !isReference && !isKorean(post.text, settings.koreanMinRatio)) {
+      state.stats.skippedForeign = (state.stats.skippedForeign || 0) + 1;
+      continue;
+    }
 
-    // collectAll 계정이면 키워드가 안 맞아도 담는다
-    const keep = hits.length > 0 || Boolean(account && account.collectAll);
-    if (!keep) continue;
+    const { hits, groups } = matchKeywords(post.text, state.groups, { onlyApproved: true });
+    if (!hits.length && !isReference) continue;
+
+    const counts = seen.get(post.id).counts;
+    delete post.countsRaw;
 
     const displayHits = hits.length
       ? hits
       : [{ group: ACCOUNT_GROUP.id, label: ACCOUNT_GROUP.label, keyword: `@${normalizeHandle(post.author)}` }];
     matched.push({ id: post.id, hits: displayHits });
 
-    if (existingIds.has(post.id)) continue;
-    existingIds.add(post.id);
+    // ── 구매 문의 답글이면, 그 답글이 달린 판매자 원글에 붙인다 ──
+    if (post.type === 'reply' && hits.length && post.parentId && post.parentUrl) {
+      const parent = ensureParent(posts, byId, post.parentId, post.parentUrl, seen, gate);
+      if (parent && !parent.inquiries.some((q) => q.id === post.id)) {
+        parent.inquiries.push({
+          id: post.id,
+          author: post.author,
+          url: post.url,
+          text: post.text.slice(0, 300),
+          keywords: [...new Set(hits.map((h) => h.keyword))],
+          at: new Date().toISOString()
+        });
+      }
+      if (parent && parent.pending) parentQueue.add(parent.id);
+    }
 
-    const postGroups = account ? [...new Set([...groups, ACCOUNT_GROUP.id])] : groups;
-    const postLabels = [...new Set(hits.map((h) => h.label))];
-    if (account) postLabels.push(ACCOUNT_GROUP.label);
+    if (byId.has(post.id)) {
+      // 자리표시자로 먼저 만들어 둔 원글을 실제 내용으로 채운다
+      const existing = byId.get(post.id);
+      if (existing.pending && post.text) {
+        Object.assign(existing, {
+          text: post.text,
+          counts,
+          images: post.images || [],
+          links: post.links || [],
+          postedAt: post.postedAt,
+          type: post.type || existing.type,
+          pending: false
+        });
+        parentQueue.delete(post.id);
+      }
+      continue;
+    }
 
-    // content.js 는 화면에 있던 문자열을 그대로 넘긴다. 숫자 해석은 여기서 한 번만 한다.
-    const raw = post.countsRaw || {};
-    const counts = {
-      views: parseCount(raw.views),
-      likes: parseCount(raw.likes),
-      replies: parseCount(raw.replies),
-      reposts: parseCount(raw.reposts)
-    };
-    delete post.countsRaw;
+    // ── 수집 기준: 원글은 반응이 있어야 담는다 ──
+    const isParentSide = post.type !== 'reply';
+    if (isParentSide && !isReference && !shouldCollect(counts, gate)) continue;
 
-    posts.push({
+    const record = {
       ...post,
       type: post.type || 'unknown',
       counts,
       images: post.images || [],
       keywords: [...new Set(hits.map((h) => h.keyword))],
-      groups: postGroups,
-      groupLabels: postLabels,
+      groups: account ? [...new Set([...groups, ACCOUNT_GROUP.id])] : groups,
+      groupLabels: [...new Set([...hits.map((h) => h.label), ...(account ? [ACCOUNT_GROUP.label] : [])])],
       account: account ? normalizeHandle(post.author) : null,
+      inquiries: [],
       snippet: hits.length ? snippetAround(post.text, hits[0].keyword) : post.text.slice(0, 80),
       collectedAt: new Date().toISOString()
-    });
+    };
+    posts.push(record);
+    byId.set(post.id, record);
     state.stats.matched += 1;
   }
 
   // 조회수가 안 잡혔는데 댓글이 많이 달린 글은 나중에 상세 페이지로 확인한다
   const queue = new Set(state.viewQueue);
-  if (state.settings.enrichViews) {
+  if (settings.enrichViews) {
     for (const p of posts) {
-      if (p.counts?.views === null && (p.counts?.replies ?? 0) >= (state.settings.enrichMinReplies || 20)) {
+      if (p.counts?.views === null && (p.counts?.replies ?? 0) >= (settings.enrichMinReplies || 20)) {
         if (!p.viewsCheckedAt) queue.add(p.id);
       }
     }
   }
 
   state.stats.lastAt = new Date().toISOString();
-  if (posts.length > state.settings.maxPosts) posts = posts.slice(-state.settings.maxPosts);
+  if (posts.length > settings.maxPosts) posts = posts.slice(-settings.maxPosts);
   const trimmedCorpus = corpus.slice(-CORPUS_MAX);
 
   const patch = {
     [KEYS.POSTS]: posts,
     [KEYS.STATS]: state.stats,
     [KEYS.CORPUS]: trimmedCorpus,
-    [KEYS.VIEW_QUEUE]: [...queue].slice(0, 500)
+    [KEYS.VIEW_QUEUE]: [...queue].slice(0, 500),
+    [KEYS.PARENT_QUEUE]: [...parentQueue].slice(0, 300)
   };
 
-  // N건마다 새 키워드 후보를 다시 뽑아 pending 으로만 쌓아둔다 (자동 반영 없음)
-  if (state.stats.sinceSuggest >= (state.settings.suggestEvery || 60)) {
+  if (state.stats.sinceSuggest >= (settings.suggestEvery || 60)) {
     state.stats.sinceSuggest = 0;
     patch[KEYS.SUGGESTIONS] = mergeSuggestions(
       state.suggestions,
@@ -127,7 +239,7 @@ async function handlePosts(incoming) {
   }
 
   await set(patch);
-  await updateBadge(posts.length);
+  await updateBadge(posts.filter((p) => !p.pending).length);
   return { matched };
 }
 
@@ -335,40 +447,92 @@ const handlers = {
 
   /* ---- 조회수 보강 큐 ---- */
 
-  /** content.js 가 다음에 확인할 글 하나를 받아간다. 없으면 null. */
+  /**
+   * content.js 가 다음에 확인할 작업 하나를 받아간다.
+   *   kind 'parent' — 구매 문의가 달린 판매자 원글의 본문을 채운다 (우선)
+   *   kind 'views'  — 조회수를 채운다
+   */
   NEXT_ENRICH: async () => {
-    const { viewQueue, posts, settings } = await getAll();
-    if (!settings.enrichViews || !settings.collecting) return { job: null };
-    while (viewQueue.length) {
-      const id = viewQueue[0];
-      const post = posts.find((p) => p.id === id);
-      if (post && post.counts?.views === null && !post.viewsCheckedAt) {
-        return { job: { id, url: post.url }, remaining: viewQueue.length };
+    const { viewQueue, parentQueue, posts, settings } = await getAll();
+    if (!settings.collecting) return { job: null };
+    const byId = new Map(posts.map((p) => [p.id, p]));
+
+    const parents = [...parentQueue];
+    while (parents.length) {
+      const id = parents[0];
+      const post = byId.get(id);
+      if (post && post.pending && !post.contentCheckedAt) {
+        return { job: { kind: 'parent', id, url: post.url }, remaining: parents.length + viewQueue.length };
       }
-      viewQueue.shift();   // 이미 채워졌거나 사라진 글은 버린다
+      parents.shift();
     }
-    await set({ [KEYS.VIEW_QUEUE]: [] });
+    if (parents.length !== parentQueue.length) await set({ [KEYS.PARENT_QUEUE]: parents });
+
+    if (!settings.enrichViews) return { job: null };
+    const views = [...viewQueue];
+    while (views.length) {
+      const id = views[0];
+      const post = byId.get(id);
+      if (post && post.counts?.views === null && !post.viewsCheckedAt) {
+        return { job: { kind: 'views', id, url: post.url }, remaining: views.length };
+      }
+      views.shift();
+    }
+    if (views.length !== viewQueue.length) await set({ [KEYS.VIEW_QUEUE]: views });
     return { job: null, remaining: 0 };
   },
 
-  /** 확인 결과를 반영한다. views 가 null 이어도 다시 시도하지 않도록 표시만 남긴다. */
+  /** 조회수 확인 결과. 못 찾았어도 확인 시각을 남겨 다시 시도하지 않는다. */
   ENRICH_RESULT: async (msg) => {
     const { posts, viewQueue, stats } = await getAll();
     const now = new Date().toISOString();
-    const next = posts.map((p) => {
-      if (p.id !== msg.id) return p;
-      return {
-        ...p,
-        counts: { ...p.counts, views: msg.views ?? p.counts?.views ?? null },
-        viewsCheckedAt: now
-      };
-    });
+    const next = posts.map((p) => (p.id !== msg.id ? p : {
+      ...p,
+      counts: { ...p.counts, views: msg.views ?? p.counts?.views ?? null },
+      viewsCheckedAt: now
+    }));
     stats.enrichTried += 1;
     if (msg.views !== null && msg.views !== undefined) stats.enrichFilled += 1;
 
     await set({
       [KEYS.POSTS]: next,
       [KEYS.VIEW_QUEUE]: viewQueue.filter((id) => id !== msg.id),
+      [KEYS.STATS]: stats
+    });
+    return { ok: true };
+  },
+
+  /** 판매자 원글 본문 확인 결과. */
+  PARENT_RESULT: async (msg) => {
+    const { posts, parentQueue, stats, settings } = await getAll();
+    const now = new Date().toISOString();
+
+    let dropped = false;
+    const next = posts.map((p) => {
+      if (p.id !== msg.id) return p;
+      const text = msg.text || p.text || '';
+      // 본문을 받아왔는데 외국어면 담지 않는다
+      if (text && settings.koreanOnly && !isKorean(text, settings.koreanMinRatio)) {
+        dropped = true;
+        return null;
+      }
+      return {
+        ...p,
+        text,
+        author: msg.author || p.author,
+        authorUrl: msg.author ? `https://www.threads.com/@${msg.author}` : p.authorUrl,
+        counts: { ...p.counts, views: msg.views ?? p.counts?.views ?? null },
+        pending: !text,
+        contentCheckedAt: now
+      };
+    }).filter(Boolean);
+
+    if (msg.text) stats.parentsFound = (stats.parentsFound || 0) + 1;
+    if (dropped) stats.skippedForeign = (stats.skippedForeign || 0) + 1;
+
+    await set({
+      [KEYS.POSTS]: next,
+      [KEYS.PARENT_QUEUE]: parentQueue.filter((id) => id !== msg.id),
       [KEYS.STATS]: stats
     });
     return { ok: true };

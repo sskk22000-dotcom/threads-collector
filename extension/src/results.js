@@ -7,7 +7,7 @@ const send = (msg) => chrome.runtime.sendMessage(msg);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-const FIELDS = ['minViews', 'minReplies', 'minLikes', 'group', 'kind', 'sort', 'q', 'includeUnknown', 'onlyImages'];
+const FIELDS = ['minViews', 'minReplies', 'minLikes', 'minInquiries', 'group', 'kind', 'sort', 'q', 'includeUnknown', 'onlyImages'];
 const KIND_LABEL = { post: '글', reply: '답글', unknown: '판별 불가' };
 
 let state = null;
@@ -19,17 +19,23 @@ let visible = [];
 function applyFilters() {
   const q = (filters.q || '').trim().toLowerCase();
   const inc = filters.includeUnknown;
+  const sellerMode = filters.mode !== 'all';
 
-  visible = state.posts.filter((p) => {
+  const pool = sellerMode
+    ? state.posts.filter((p) => (p.inquiries || []).length >= (Number(filters.minInquiries) || 1))
+    : state.posts;
+
+  visible = pool.filter((p) => {
     const c = p.counts || {};
     if (!passesThreshold(c.views, Number(filters.minViews) || 0, inc)) return false;
     if (!passesThreshold(c.replies, Number(filters.minReplies) || 0, inc)) return false;
     if (!passesThreshold(c.likes, Number(filters.minLikes) || 0, inc)) return false;
     if (filters.group && !(p.groups || []).includes(filters.group)) return false;
-    if (filters.kind && (p.type || 'unknown') !== filters.kind) return false;
+    if (!sellerMode && filters.kind && (p.type || 'unknown') !== filters.kind) return false;
     if (filters.onlyImages && !(p.images || []).length) return false;
     if (q) {
-      const hay = `${p.text} ${p.author} ${(p.keywords || []).join(' ')}`.toLowerCase();
+      const inquiryText = (p.inquiries || []).map((i) => i.text).join(' ');
+      const hay = `${p.text} ${p.author} ${(p.keywords || []).join(' ')} ${inquiryText}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
@@ -37,6 +43,7 @@ function applyFilters() {
 
   const num = (v) => (v === null || v === undefined ? -1 : v);
   const bySort = {
+    inquiries: (a, b) => (b.inquiries || []).length - (a.inquiries || []).length,
     views: (a, b) => num(b.counts?.views) - num(a.counts?.views),
     likes: (a, b) => num(b.counts?.likes) - num(a.counts?.likes),
     replies: (a, b) => num(b.counts?.replies) - num(a.counts?.replies),
@@ -44,7 +51,7 @@ function applyFilters() {
     collected: (a, b) => String(b.collectedAt).localeCompare(String(a.collectedAt)),
     posted: (a, b) => String(b.postedAt || '').localeCompare(String(a.postedAt || ''))
   };
-  visible.sort(bySort[filters.sort] || bySort.views);
+  visible.sort(sellerMode ? bySort.inquiries : (bySort[filters.sort] || bySort.views));
 }
 
 /* ------------------------------------------------------------------ 렌더 */
@@ -71,6 +78,18 @@ function card(p) {
     : '';
 
   const when = p.postedAt ? new Date(p.postedAt).toLocaleString('ko-KR') : '';
+  const inquiries = p.inquiries || [];
+  const inquiryBlock = inquiries.length
+    ? `<div class="inquiries">
+         <h4>이 글에 달린 구매 문의 ${inquiries.length}건</h4>
+         ${inquiries.slice(0, 6).map((q) => `
+           <div class="inquiry">
+             <a href="${esc(q.url)}" target="_blank" rel="noreferrer">@${esc(q.author)}</a>
+             <span class="q">${esc(q.text.slice(0, 160))}</span>
+           </div>`).join('')}
+         ${inquiries.length > 6 ? `<div class="inquiry q">외 ${inquiries.length - 6}건</div>` : ''}
+       </div>`
+    : '';
   const tags = [
     ...(p.groupLabels || []).map((l) => `<span class="tag">${esc(l)}</span>`),
     ...(p.keywords || []).map((k) => `<span class="tag">${esc(k)}</span>`)
@@ -90,13 +109,15 @@ function card(p) {
           <span class="tag kind-${esc(p.type || 'unknown')}">${esc(KIND_LABEL[p.type] || '판별 불가')}</span>
           ${p.account ? '<span class="tag">레퍼런스 계정</span>' : ''}
         </div>
-        <p class="text">${text}</p>
+        <p class="text${p.pending ? ' pending' : ''}">${p.pending ? '본문 확인 중… (원문 열기를 누르면 바로 채워집니다)' : text}</p>
         <div class="metrics">
+          ${inquiries.length ? `<span class="inquiry-count">구매문의 ${inquiries.length}</span>` : ''}
           ${metric('조회', p.counts?.views)}
           ${metric('좋아요', p.counts?.likes)}
           ${metric('댓글', p.counts?.replies)}
           ${metric('리포스트', p.counts?.reposts)}
         </div>
+        ${inquiryBlock}
         ${links}
         <div class="tags">${tags}
           <a class="open" href="${esc(p.url)}" target="_blank" rel="noreferrer">원문 열기 →</a>
@@ -132,14 +153,25 @@ function renderNotice() {
 function render() {
   applyFilters();
 
-  const withViews = state.posts.filter((p) => p.counts?.views != null).length;
-  $('#summary').textContent =
-    `전체 ${state.posts.length}건 중 ${visible.length}건 표시 · 조회수 확인된 글 ${withViews}건 · ` +
-    `수집 계정 ${state.accounts.length}개`;
+  const sellerMode = filters.mode !== 'all';
+  document.querySelectorAll('.mode').forEach((b) =>
+    b.classList.toggle('active', (b.dataset.mode === 'seller') === sellerMode));
+  document.querySelectorAll('.seller-only').forEach((el) => el.classList.toggle('hidden', !sellerMode));
+  document.querySelectorAll('.all-only').forEach((el) => el.classList.toggle('hidden', sellerMode));
 
-  $('#list').innerHTML = renderNotice() + (visible.length
+  const sellers = state.posts.filter((p) => (p.inquiries || []).length);
+  const totalInquiries = sellers.reduce((n, p) => n + p.inquiries.length, 0);
+  $('#summary').textContent = sellerMode
+    ? `구매 문의가 달린 판매자 글 ${sellers.length}건 (문의 ${totalInquiries}건) 중 ${visible.length}건 표시 · ` +
+      `본문 확인 대기 ${state.parentQueue.length}건`
+    : `수집한 글 ${state.posts.length}건 중 ${visible.length}건 표시 · ` +
+      `조회수 확인된 글 ${state.posts.filter((p) => p.counts?.views != null).length}건`;
+
+  $('#list').innerHTML = (sellerMode ? '' : renderNotice()) + (visible.length
     ? visible.map(card).join('')
-    : '<div class="empty">조건에 맞는 글이 없습니다. 위 필터를 낮춰보세요.</div>');
+    : sellerMode
+      ? '<div class="empty">아직 구매 문의가 달린 판매자 글이 없습니다.<br>쓰레드에서 “어디서 사” 같은 검색어로 검색한 뒤 스크롤해 보세요.</div>'
+      : '<div class="empty">조건에 맞는 글이 없습니다. 위 필터를 낮춰보세요.</div>');
 
   const drop = $('#dropViews');
   if (drop) drop.addEventListener('click', () => patch({ minViews: 0 }));
@@ -186,6 +218,7 @@ async function load() {
   state.groups = state.groups || [];
   state.accounts = state.accounts || [];
   state.viewQueue = state.viewQueue || [];
+  state.parentQueue = state.parentQueue || [];
   state.settings = { ...DEFAULT_SETTINGS, ...(state.settings || {}) };
   state.stats = { ...DEFAULT_STATS, ...(state.stats || {}) };
   filters = { ...DEFAULT_VIEW_FILTERS, ...(state.viewFilters || {}) };
@@ -204,9 +237,12 @@ for (const key of FIELDS) {
   });
 }
 
+document.querySelectorAll('.mode').forEach((btn) =>
+  btn.addEventListener('click', () => patch({ mode: btn.dataset.mode })));
+
 $('#reset').addEventListener('click', () => patch({
-  minViews: 10000, minReplies: 20, minLikes: 0, group: '', kind: '', sort: 'views', q: '',
-  includeUnknown: false, onlyImages: false
+  minViews: 0, minReplies: 0, minLikes: 0, minInquiries: 1, group: '', kind: '', sort: 'views', q: '',
+  includeUnknown: true, onlyImages: false
 }));
 
 for (const [id, format] of [['exportCsv', 'csv'], ['exportJson', 'json'], ['exportMd', 'md']]) {
@@ -214,7 +250,7 @@ for (const [id, format] of [['exportCsv', 'csv'], ['exportJson', 'json'], ['expo
 }
 
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && (changes.posts || changes.viewQueue || changes.stats)) load();
+  if (area === 'local' && (changes.posts || changes.viewQueue || changes.parentQueue || changes.stats)) load();
 });
 
 load();

@@ -83,3 +83,24 @@ export function highlightHtml(escapedHtml, keyword, className = 'kw') {
     return escapedHtml;
   }
 }
+
+/**
+ * 한글 비중. 외국어 글을 걸러내기 위한 것.
+ * 글자(한글·라틴·가나·한자)만 세고 숫자·이모지·문장부호는 무시한다.
+ */
+export function koreanRatio(text) {
+  const s = String(text || '');
+  const hangul = (s.match(/[가-힣ㄱ-ㅎㅏ-ㅣ]/g) || []).length;
+  const other = (s.match(/[A-Za-z぀-ヿ一-鿿Ѐ-ӿ؀-ۿ฀-๿]/g) || []).length;
+  const total = hangul + other;
+  if (!total) return 0;
+  return hangul / total;
+}
+
+/** 한국어 글로 볼지. 글자가 거의 없는 글(사진만 있는 글 등)은 통과시킨다. */
+export function isKorean(text, minRatio = 0.3) {
+  const s = String(text || '');
+  const letters = (s.match(/[가-힣ㄱ-ㅎㅏ-ㅣA-Za-z぀-ヿ一-鿿Ѐ-ӿ؀-ۿ฀-๿]/g) || []).length;
+  if (letters < 8) return true;          // 판단할 글자가 부족하면 거르지 않는다
+  return koreanRatio(s) >= minRatio;
+}

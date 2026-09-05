@@ -118,3 +118,27 @@ main { padding-top: 18px; padding-bottom: 60px; }
 @media (prefers-color-scheme: dark) {
   .tag.kind-reply { border-color: #d9a441; color: #d9a441; }
 }
+
+.modes { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.modes .mode {
+  border: 0; border-radius: 0; padding: 6px 14px; background: transparent;
+  color: var(--muted); font-weight: 700;
+}
+.modes .mode.active { background: var(--accent); color: #fff; }
+
+.inquiry-count {
+  display: inline-flex; align-items: baseline; gap: 5px;
+  padding: 3px 10px; border-radius: 999px;
+  background: var(--accent); color: #fff; font-size: 12px; font-weight: 700;
+}
+.inquiries {
+  margin: 10px 0 0; padding: 10px 12px;
+  border-left: 3px solid var(--accent); background: var(--chip); border-radius: 0 8px 8px 0;
+}
+.inquiries h4 { margin: 0 0 6px; font-size: 12px; color: var(--muted); font-weight: 700; }
+.inquiry { font-size: 13px; margin-bottom: 6px; }
+.inquiry:last-child { margin-bottom: 0; }
+.inquiry a { color: var(--fg); font-weight: 700; text-decoration: none; }
+.inquiry a:hover { color: var(--accent); }
+.inquiry .q { color: var(--muted); }
+.pending { color: var(--muted); font-style: italic; }

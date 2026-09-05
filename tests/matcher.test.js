@@ -138,6 +138,34 @@ check('화면 표기에서 추출', extractViewCount('<span>조회수 3.2만회<
 check('영문 표기에서 추출', extractViewCount('<span>12.5K views</span>') === 12500);
 check('없으면 null', extractViewCount('<html>아무것도 없음</html>') === null && extractViewCount('') === null);
 
+/* ---------------------------------------------------- 수집 기준(게이트) */
+OUT.push('수집 기준');
+var OR = { minLikes: 100, minReplies: 20, gateMode: 'or', gateAllowUnknown: true };
+var AND = { minLikes: 100, minReplies: 20, gateMode: 'and', gateAllowUnknown: true };
+
+check('or: 좋아요만 넘어도 통과', gateResult({ likes: 500, replies: 3 }, OR) === 'pass');
+check('or: 댓글만 넘어도 통과', gateResult({ likes: 5, replies: 40 }, OR) === 'pass');
+check('or: 둘 다 미달이면 탈락', gateResult({ likes: 5, replies: 3 }, OR) === 'fail');
+check('or: 하나만 미달이고 하나는 모르면 단정 안 함', gateResult({ likes: 5, replies: null }, OR) === 'unknown');
+check('and: 둘 다 넘어야 통과', gateResult({ likes: 500, replies: 40 }, AND) === 'pass');
+check('and: 하나만 넘으면 탈락', gateResult({ likes: 500, replies: 3 }, AND) === 'fail');
+check('and: 하나를 모르면 단정 안 함', gateResult({ likes: 500, replies: null }, AND) === 'unknown');
+check('둘 다 모르면 판단 불가', gateResult({ likes: null, replies: null }, OR) === 'unknown');
+check('기준이 0 이면 전부 통과', gateResult({ likes: null, replies: null }, { minLikes: 0, minReplies: 0 }) === 'pass');
+
+check('모르는 값 허용 시 수집', shouldCollect({ likes: null, replies: null }, OR) === true);
+check('모르는 값 불허 시 제외', shouldCollect({ likes: null, replies: null }, { ...OR, gateAllowUnknown: false }) === false);
+check('미달은 허용 설정과 무관하게 제외', shouldCollect({ likes: 1, replies: 1 }, OR) === false);
+
+/* ---------------------------------------------------------- 언어 판별 */
+OUT.push('언어 판별');
+check('한국어 글', isKorean('이 청국장 어디서 사요? 너무 맛있어 보여요') === true);
+check('영어 글 제외', isKorean('Where can I buy this? It looks so delicious') === false);
+check('일본어 글 제외', isKorean('これはどこで買えますか。とても美味しそうです') === false);
+check('한글 섞인 영어는 비중으로 판단', isKorean('Threads 마케팅 레퍼런스를 모으는 중입니다 정말 좋네요') === true);
+check('글자가 거의 없으면 거르지 않음', isKorean('🔥🔥 !!') === true && isKorean('') === true);
+check('한글 비중 계산', Math.round(koreanRatio('한글abc') * 100) === 40);
+
 OUT.push('');
 OUT.push('통과 ' + pass + ' / 실패 ' + fail);
 

@@ -39,6 +39,21 @@
       <label class="row">최소 글자 수 <input type="number" id="minChars" min="0" class="num" /></label>
       <label class="row"><input type="checkbox" id="collectReplies" /> 답글도 수집
         <span class="muted">(구매 문의는 대부분 답글에 있습니다)</span></label>
+      <label class="row"><input type="checkbox" id="koreanOnly" /> 한국어 글만 수집
+        <span class="muted">(외국어 글 제외)</span></label>
+
+      <div class="sep"></div>
+      <p class="hint">수집 기준 — 키워드가 맞아도 <b>반응이 없는 원글은 담지 않습니다.</b>
+        답글(구매 문의)은 이 기준과 무관하게 원글을 찾는 단서로 씁니다.</p>
+      <label class="row">좋아요 <input type="number" id="minLikes" min="0" step="10" class="num" /> 이상</label>
+      <label class="row">댓글 <input type="number" id="minReplies" min="0" step="5" class="num" /> 이상</label>
+      <label class="row">조건
+        <select id="gateMode">
+          <option value="or">둘 중 하나만 넘으면</option>
+          <option value="and">둘 다 넘어야</option>
+        </select>
+      </label>
+      <label class="row"><input type="checkbox" id="gateAllowUnknown" /> 수치를 못 읽은 글은 일단 담기</label>
       <label class="row">추천 재계산 주기 <input type="number" id="suggestEvery" min="10" step="10" class="num" /> 건</label>
 
       <div class="sep"></div>

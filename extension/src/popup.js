@@ -19,6 +19,7 @@ function renderHeader() {
   $('#collecting').checked = !!settings.collecting;
   $('#stats').textContent =
     `수집 ${posts.length}건 · 스캔 ${stats.scanned}건` +
+    (stats.skippedForeign ? ` · 외국어 제외 ${stats.skippedForeign}건` : '') +
     (stats.lastAt ? ` · 최근 ${new Date(stats.lastAt).toLocaleTimeString('ko-KR')}` : '');
 }
 
@@ -35,6 +36,11 @@ function renderSettings() {
   $('#minChars').value = s.minChars;
   $('#suggestEvery').value = s.suggestEvery;
   $('#collectReplies').checked = s.collectReplies !== false;
+  $('#koreanOnly').checked = s.koreanOnly !== false;
+  $('#gateAllowUnknown').checked = s.gateAllowUnknown !== false;
+  $('#minLikes').value = s.minLikes;
+  $('#minReplies').value = s.minReplies;
+  $('#gateMode').value = s.gateMode;
   $('#enrichViews').checked = s.enrichViews !== false;
   $('#enrichMinReplies').value = s.enrichMinReplies;
   $('#enrichMinDelayMs').value = s.enrichMinDelayMs;
@@ -226,8 +232,11 @@ $('#collecting').addEventListener('change', (e) => patchSettings({ collecting: e
 $('#autoScroll').addEventListener('change', (e) => patchSettings({ autoScroll: e.target.checked }));
 $('#highlight').addEventListener('change', (e) => patchSettings({ highlight: e.target.checked }));
 $('#collectReplies').addEventListener('change', (e) => patchSettings({ collectReplies: e.target.checked }));
+$('#koreanOnly').addEventListener('change', (e) => patchSettings({ koreanOnly: e.target.checked }));
+$('#gateAllowUnknown').addEventListener('change', (e) => patchSettings({ gateAllowUnknown: e.target.checked }));
+$('#gateMode').addEventListener('change', (e) => patchSettings({ gateMode: e.target.value }));
 $('#enrichViews').addEventListener('change', (e) => patchSettings({ enrichViews: e.target.checked }));
-for (const id of ['autoScrollDelayMs', 'minChars', 'suggestEvery', 'enrichMinReplies', 'enrichMinDelayMs']) {
+for (const id of ['autoScrollDelayMs', 'minChars', 'suggestEvery', 'enrichMinReplies', 'enrichMinDelayMs', 'minLikes', 'minReplies']) {
   $(`#${id}`).addEventListener('change', (e) => patchSettings({ [id]: Number(e.target.value) }));
 }
 

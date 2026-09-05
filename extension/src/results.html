@@ -16,6 +16,13 @@
 
   <section class="filters">
     <div class="filters-inner">
+      <div class="modes">
+        <button class="mode" data-mode="seller">판매자 글</button>
+        <button class="mode" data-mode="all">수집한 글 전체</button>
+      </div>
+      <label class="f seller-only">구매문의 <b>≥</b>
+        <input type="number" id="minInquiries" min="1" step="1" />
+      </label>
       <label class="f">조회수 <b>≥</b>
         <input type="number" id="minViews" min="0" step="1000" />
       </label>
@@ -25,7 +32,7 @@
       <label class="f">좋아요 <b>≥</b>
         <input type="number" id="minLikes" min="0" step="10" />
       </label>
-      <label class="f">종류
+      <label class="f all-only">종류
         <select id="kind">
           <option value="">글 + 답글</option>
           <option value="post">글만</option>
