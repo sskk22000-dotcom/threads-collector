@@ -13,6 +13,7 @@ export const KEYS = {
   ACCOUNTS: 'accounts',
   SEARCH_TERMS: 'searchTerms',
   VIEW_QUEUE: 'viewQueue',
+  ROTATION: 'rotation',
   PARENT_QUEUE: 'parentQueue',
   VIEW_FILTERS: 'viewFilters'
 };
@@ -21,6 +22,11 @@ export const DEFAULT_SETTINGS = {
   collecting: false,      // 수집 on/off
   autoScroll: false,      // 피드 자동 스크롤
   autoScrollDelayMs: 2500,
+
+  // 순회 수집 — 추천 피드와 저장한 검색어들을 번갈아 돈다.
+  rotate: false,
+  rotateDwellMs: 90000,   // 한 곳에 머무는 기준 시간 (실제로는 0.7~1.4배로 흔듦)
+  rotateFeed: true,       // 순회에 추천 피드 포함
   highlight: true,        // 매칭된 글을 페이지에서 표시
   suggestEvery: 60,       // 스캔 N건마다 키워드 후보 재계산
   maxPosts: 5000,         // 보관 상한 (넘으면 오래된 것부터 버림)
@@ -77,6 +83,7 @@ export async function getAll() {
     accounts: raw[KEYS.ACCOUNTS] || [],
     searchTerms: raw[KEYS.SEARCH_TERMS] || [],
     viewQueue: raw[KEYS.VIEW_QUEUE] || [],
+    rotation: raw[KEYS.ROTATION] || { index: 0, movedAt: null, url: null },
     parentQueue: raw[KEYS.PARENT_QUEUE] || [],
     viewFilters: { ...DEFAULT_VIEW_FILTERS, ...(raw[KEYS.VIEW_FILTERS] || {}) }
   };

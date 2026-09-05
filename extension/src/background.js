@@ -3,7 +3,7 @@
 import { KEYS, DEFAULT_SETTINGS, DEFAULT_STATS, DEFAULT_VIEW_FILTERS, getAll, set, ensureSeeded } from './storage.js';
 import { matchKeywords, snippetAround, isKorean } from './matcher.js';
 import { suggestKeywords } from './suggest.js';
-import { ACCOUNT_GROUP, findAccount, normalizeHandle, normalizeSearchTerm } from './accounts.js';
+import { ACCOUNT_GROUP, findAccount, normalizeHandle, normalizeSearchTerm, searchUrl } from './accounts.js';
 import { parseCount, shouldCollect } from './counts.js';
 
 const CORPUS_MAX = 400;
@@ -536,6 +536,29 @@ const handlers = {
       [KEYS.STATS]: stats
     });
     return { ok: true };
+  },
+
+  /* ---- 순회 수집 ---- */
+
+  /**
+   * 지금 있어야 할 곳과, 다음에 갈 곳을 알려준다.
+   * 추천 피드와 저장한 검색어들을 순서대로 돈다.
+   */
+  ROTATION_NEXT: async () => {
+    const { settings, searchTerms, rotation } = await getAll();
+    if (!settings.collecting || !settings.rotate) return { sources: [], next: null };
+
+    const sources = [];
+    if (settings.rotateFeed !== false) sources.push({ label: '추천 피드', url: 'https://www.threads.com/' });
+    for (const t of searchTerms) sources.push({ label: `검색: ${t.value}`, url: searchUrl(t.value) });
+    if (!sources.length) return { sources: [], next: null };
+
+    const index = (Number(rotation.index) || 0) % sources.length;
+    const nextIndex = (index + 1) % sources.length;
+    const next = sources[nextIndex];
+
+    await set({ [KEYS.ROTATION]: { index: nextIndex, movedAt: new Date().toISOString(), url: next.url } });
+    return { sources, next, total: sources.length, position: nextIndex + 1 };
   },
 
   /* ---- 결과 페이지 필터 ---- */

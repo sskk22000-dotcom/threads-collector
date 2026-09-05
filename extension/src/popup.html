@@ -36,6 +36,16 @@
         <input type="number" id="autoScrollDelayMs" min="1000" step="500" class="num" /> ms
       </label>
       <label class="row"><input type="checkbox" id="highlight" /> 수집된 글을 페이지에서 표시</label>
+
+      <div class="sep"></div>
+      <p class="hint">순회 수집 — <b>추천 피드와 저장한 검색어들을 번갈아 돌면서</b> 모읍니다.
+        켜두면 알아서 옮겨 다닙니다.</p>
+      <label class="row"><input type="checkbox" id="rotate" /> 추천 ↔ 검색 순회하기</label>
+      <label class="row"><input type="checkbox" id="rotateFeed" /> 순회에 추천 피드 포함</label>
+      <label class="row">한 곳에 머무는 시간
+        <input type="number" id="rotateDwellMs" min="20000" step="10000" class="num" /> ms
+      </label>
+      <div class="stats" id="rotateStats"></div>
       <label class="row">최소 글자 수 <input type="number" id="minChars" min="0" class="num" /></label>
       <label class="row"><input type="checkbox" id="collectReplies" /> 답글도 수집
         <span class="muted">(구매 문의는 대부분 답글에 있습니다)</span></label>

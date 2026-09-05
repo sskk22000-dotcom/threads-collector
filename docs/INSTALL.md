@@ -43,7 +43,7 @@ git clone https://github.com/sskk22000-dotcom/threads-collector.git
    - 받은 zip 을 **마우스 오른쪽 클릭 → 속성** → 아래쪽에 **"차단 해제"** 체크박스가 보이면 체크하고 확인
      (인터넷에서 받은 파일이라 윈도우가 잠가두는 경우가 있습니다. 안 보이면 그냥 넘어가세요.)
    - 다시 오른쪽 클릭 → **압축 풀기** → 위 2번에서 정한 폴더 지정
-   - 풀고 나면 `threads-collector-v2.0.0` 폴더가 생기고, 그 안에 `manifest.json` 이 보여야 합니다.
+   - 풀고 나면 `threads-collector-v2.1.0` 폴더가 생기고, 그 안에 `manifest.json` 이 보여야 합니다.
 
    **맥**
    ```bash
@@ -66,7 +66,7 @@ git clone https://github.com/sskk22000-dotcom/threads-collector.git
    (영문판이면 `Load unpacked`)
 4. 폴더 선택창에서 **`manifest.json` 이 들어있는 폴더**를 고릅니다.
    - git clone 했다면 → `threads-collector/extension`
-   - zip 을 풀었다면 → `threads-collector-v2.0.0`
+   - zip 을 풀었다면 → `threads-collector-v2.1.0`
    - ⚠️ 폴더 **안으로 들어가서** 선택하지 말고, 그 폴더 자체를 선택하세요. `src` 폴더를 고르면 안 됩니다.
 5. 목록에 **쓰레드 레퍼런스 수집기**가 나타나면 설치 완료.
 6. 주소창 오른쪽 퍼즐(🧩) 아이콘 → 목록에서 이 확장의 **압정(📌)** 을 눌러 툴바에 고정하면 편합니다.

@@ -37,6 +37,15 @@ function renderSettings() {
   $('#suggestEvery').value = s.suggestEvery;
   $('#collectReplies').checked = s.collectReplies !== false;
   $('#koreanOnly').checked = s.koreanOnly !== false;
+  $('#rotate').checked = Boolean(s.rotate);
+  $('#rotateFeed').checked = s.rotateFeed !== false;
+  $('#rotateDwellMs').value = s.rotateDwellMs;
+  const sourceCount = (s.rotateFeed !== false ? 1 : 0) + (state.searchTerms || []).length;
+  $('#rotateStats').textContent = s.rotate
+    ? (sourceCount > 1
+        ? `순회 대상 ${sourceCount}곳 · 지금 ${(state.rotation && state.rotation.index + 1) || 1}번째`
+        : '순회할 곳이 하나뿐입니다. 아래에서 검색어를 추가하세요.')
+    : '';
   $('#gateAllowUnknown').checked = s.gateAllowUnknown !== false;
   $('#minLikes').value = s.minLikes;
   $('#minReplies').value = s.minReplies;
@@ -233,10 +242,12 @@ $('#autoScroll').addEventListener('change', (e) => patchSettings({ autoScroll: e
 $('#highlight').addEventListener('change', (e) => patchSettings({ highlight: e.target.checked }));
 $('#collectReplies').addEventListener('change', (e) => patchSettings({ collectReplies: e.target.checked }));
 $('#koreanOnly').addEventListener('change', (e) => patchSettings({ koreanOnly: e.target.checked }));
+$('#rotate').addEventListener('change', (e) => patchSettings({ rotate: e.target.checked }));
+$('#rotateFeed').addEventListener('change', (e) => patchSettings({ rotateFeed: e.target.checked }));
 $('#gateAllowUnknown').addEventListener('change', (e) => patchSettings({ gateAllowUnknown: e.target.checked }));
 $('#gateMode').addEventListener('change', (e) => patchSettings({ gateMode: e.target.value }));
 $('#enrichViews').addEventListener('change', (e) => patchSettings({ enrichViews: e.target.checked }));
-for (const id of ['autoScrollDelayMs', 'minChars', 'suggestEvery', 'enrichMinReplies', 'enrichMinDelayMs', 'minLikes', 'minReplies']) {
+for (const id of ['autoScrollDelayMs', 'minChars', 'suggestEvery', 'enrichMinReplies', 'enrichMinDelayMs', 'minLikes', 'minReplies', 'rotateDwellMs']) {
   $(`#${id}`).addEventListener('change', (e) => patchSettings({ [id]: Number(e.target.value) }));
 }
 

@@ -31,6 +31,7 @@
   let scanTimer = null;
   let scrollTimer = null;
   let enrichTimer = null;
+  let rotateTimer = null;
   let enrichedThisRun = 0;
   let countsModule = null;
 
@@ -318,6 +319,52 @@
     scrollTimer = setTimeout(humanScrollStep, nextScrollDelay());
   }
 
+  /* ---------------------------------------------------------- 순회 수집 */
+
+  /** 사용자가 뭔가 하고 있으면 페이지를 가로채지 않는다. */
+  function userIsBusy() {
+    const el = document.activeElement;
+    if (el && /^(input|textarea)$/i.test(el.tagName)) return true;
+    if (el && el.isContentEditable) return true;
+    return Boolean(window.getSelection && String(window.getSelection()));
+  }
+
+  function nextRotateDelay() {
+    const base = Math.max(20000, settings.rotateDwellMs || 90000);
+    return Math.round(base * (0.7 + Math.random() * 0.7));   // 0.7~1.4배
+  }
+
+  /**
+   * 한 곳에서 충분히 모았으면 다음 소스로 옮긴다.
+   * 추천 피드 → 검색어1 → 검색어2 → … → 다시 추천 피드.
+   */
+  async function rotateStep() {
+    if (!settings.collecting || !settings.rotate) return;
+
+    if (userIsBusy()) {                       // 입력 중이면 미루고 다시 기다린다
+      rotateTimer = setTimeout(rotateStep, 15000);
+      return;
+    }
+
+    let res;
+    try {
+      res = await chrome.runtime.sendMessage({ type: 'ROTATION_NEXT' });
+    } catch {
+      return;
+    }
+    if (!res || !res.next) {
+      rotateTimer = setTimeout(rotateStep, 30000);
+      return;
+    }
+    location.assign(res.next.url);            // 이동하면 이 스크립트는 새로 뜬다
+  }
+
+  function applyRotation() {
+    clearTimeout(rotateTimer);
+    if (!settings.collecting || !settings.rotate) return;
+    rotateTimer = setTimeout(rotateStep, nextRotateDelay());
+  }
+
   /* -------------------------------------------------------- 조회수 보강 */
 
   // counts.js 는 ES 모듈이라 콘텐츠 스크립트에서 동적으로 불러 쓴다.
@@ -393,7 +440,12 @@
     accountHandles = new Set((raw.accounts || []).map((a) => String(a.username || '').toLowerCase()));
     applyAutoScroll();
     applyEnrich();
-    if (!settings.collecting) { clearTimeout(scrollTimer); clearTimeout(enrichTimer); }
+    applyRotation();
+    if (!settings.collecting) {
+      clearTimeout(scrollTimer);
+      clearTimeout(enrichTimer);
+      clearTimeout(rotateTimer);
+    }
     if (!settings.highlight) clearMarks();
     scheduleScan(200);
   }
