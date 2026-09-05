@@ -66,16 +66,32 @@
     const raw = { likes: null, replies: null, reposts: null, views: null };
     const put = (key, value) => { if (value && raw[key] === null) raw[key] = String(value); };
 
+    const keyOf = (label) => {
+      if (/조회|view/i.test(label)) return 'views';
+      if (/좋아요|like/i.test(label)) return 'likes';
+      if (/답글|repl|comment/i.test(label)) return 'replies';
+      if (/리포스트|repost/i.test(label)) return 'reposts';
+      return null;
+    };
+
     for (const el of container.querySelectorAll('[aria-label], [title]')) {
       const label = el.getAttribute('aria-label') || el.getAttribute('title') || '';
-      if (!/\d/.test(label)) continue;
-      if (/조회|view/i.test(label)) put('views', label);
-      else if (/좋아요|like/i.test(label)) put('likes', label);
-      else if (/답글|repl|comment/i.test(label)) put('replies', label);
-      else if (/리포스트|repost/i.test(label)) put('reposts', label);
+      const key = keyOf(label);
+      if (!key || raw[key] !== null) continue;
+
+      // 레이블 안에 숫자가 있으면 그대로 쓴다 ("좋아요 1,203개")
+      if (/\d/.test(label)) { put(key, label); continue; }
+
+      // 쓰레드 피드는 아이콘 옆에 맨숫자만 찍는다. 버튼 주변에서 첫 숫자를 찾는다.
+      const near = [el.parentElement, el.parentElement?.parentElement, el.nextElementSibling];
+      for (const node of near) {
+        const text = node && node.innerText ? node.innerText.trim() : '';
+        const m = text.match(/^\s*([\d,.]+\s*[억만천KkMmBb]?)\s*$/) || text.match(/([\d,.]+\s*[억만천KkMmBb]?)/);
+        if (m) { put(key, m[1]); break; }
+      }
     }
 
-    // aria-label 에 숫자가 없는 레이아웃 대비: 본문 텍스트에서 직접 긁는다
+    // 그래도 못 찾으면 본문 텍스트 표기에서 긁는다
     const text = container.innerText || '';
     const grab = (re) => { const m = text.match(re); return m ? m[1] : null; };
     put('views', grab(/조회\s*수?\s*([\d,.]+\s*[억만천KkMmBb]?)/) || grab(/([\d,.]+\s*[KkMmBb]?)\s*views?/i));

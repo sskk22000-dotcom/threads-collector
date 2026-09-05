@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "쓰레드 레퍼런스 수집기",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Threads(쓰레드)에서 구매 의도 키워드가 포함된 글을 키워드별로 수집하는 레퍼런스 수집기.",
   "permissions": [
     "storage",
