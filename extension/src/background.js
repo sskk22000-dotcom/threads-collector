@@ -1,9 +1,10 @@
 /** 상태의 단일 소유자. 매칭 · 저장 · 추천 · 내보내기를 전부 여기서 처리한다. */
 
-import { KEYS, DEFAULT_SETTINGS, DEFAULT_STATS, getAll, set, ensureSeeded } from './storage.js';
+import { KEYS, DEFAULT_SETTINGS, DEFAULT_STATS, DEFAULT_VIEW_FILTERS, getAll, set, ensureSeeded } from './storage.js';
 import { matchKeywords, snippetAround } from './matcher.js';
 import { suggestKeywords } from './suggest.js';
 import { ACCOUNT_GROUP, findAccount, normalizeHandle, normalizeSearchTerm } from './accounts.js';
+import { parseCount } from './counts.js';
 
 const CORPUS_MAX = 400;
 const CUSTOM_GROUP = {
@@ -68,8 +69,20 @@ async function handlePosts(incoming) {
     const postLabels = [...new Set(hits.map((h) => h.label))];
     if (account) postLabels.push(ACCOUNT_GROUP.label);
 
+    // content.js 는 화면에 있던 문자열을 그대로 넘긴다. 숫자 해석은 여기서 한 번만 한다.
+    const raw = post.countsRaw || {};
+    const counts = {
+      views: parseCount(raw.views),
+      likes: parseCount(raw.likes),
+      replies: parseCount(raw.replies),
+      reposts: parseCount(raw.reposts)
+    };
+    delete post.countsRaw;
+
     posts.push({
       ...post,
+      counts,
+      images: post.images || [],
       keywords: [...new Set(hits.map((h) => h.keyword))],
       groups: postGroups,
       groupLabels: postLabels,
@@ -80,6 +93,16 @@ async function handlePosts(incoming) {
     state.stats.matched += 1;
   }
 
+  // 조회수가 안 잡혔는데 댓글이 많이 달린 글은 나중에 상세 페이지로 확인한다
+  const queue = new Set(state.viewQueue);
+  if (state.settings.enrichViews) {
+    for (const p of posts) {
+      if (p.counts?.views === null && (p.counts?.replies ?? 0) >= (state.settings.enrichMinReplies || 20)) {
+        if (!p.viewsCheckedAt) queue.add(p.id);
+      }
+    }
+  }
+
   state.stats.lastAt = new Date().toISOString();
   if (posts.length > state.settings.maxPosts) posts = posts.slice(-state.settings.maxPosts);
   const trimmedCorpus = corpus.slice(-CORPUS_MAX);
@@ -87,7 +110,8 @@ async function handlePosts(incoming) {
   const patch = {
     [KEYS.POSTS]: posts,
     [KEYS.STATS]: state.stats,
-    [KEYS.CORPUS]: trimmedCorpus
+    [KEYS.CORPUS]: trimmedCorpus,
+    [KEYS.VIEW_QUEUE]: [...queue].slice(0, 500)
   };
 
   // N건마다 새 키워드 후보를 다시 뽑아 pending 으로만 쌓아둔다 (자동 반영 없음)
@@ -117,7 +141,8 @@ function mergeSuggestions(previous, fresh) {
 /* ------------------------------------------------------------- 내보내기 */
 
 function toCsv(posts) {
-  const cols = ['collectedAt', 'postedAt', 'author', 'referenceAccount', 'url', 'groupLabels', 'keywords', 'likes', 'replies', 'reposts', 'links', 'text'];
+  const cols = ['collectedAt', 'postedAt', 'author', 'referenceAccount', 'url', 'groupLabels', 'keywords',
+    'views', 'likes', 'replies', 'reposts', 'links', 'images', 'text'];
   const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const rows = [cols.join(',')];
   for (const p of posts) {
@@ -125,8 +150,9 @@ function toCsv(posts) {
       p.collectedAt, p.postedAt, p.author, p.account || '', p.url,
       (p.groupLabels || []).join(' | '),
       (p.keywords || []).join(' | '),
-      p.counts?.likes, p.counts?.replies, p.counts?.reposts,
+      p.counts?.views, p.counts?.likes, p.counts?.replies, p.counts?.reposts,
       (p.links || []).join(' | '),
+      (p.images || []).join(' | '),
       p.text
     ].map(esc).join(','));
   }
@@ -149,9 +175,15 @@ function toMarkdown(posts, groups) {
   return lines.join('\n');
 }
 
-async function exportData(format, filterGroup) {
+async function exportData(format, filterGroup, ids) {
   const { posts, groups } = await getAll();
-  const target = filterGroup ? posts.filter((p) => (p.groups || []).includes(filterGroup)) : posts;
+  let target = posts;
+  if (Array.isArray(ids)) {
+    const wanted = new Set(ids);
+    target = posts.filter((p) => wanted.has(p.id));
+  } else if (filterGroup) {
+    target = posts.filter((p) => (p.groups || []).includes(filterGroup));
+  }
   const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
 
   let body;
@@ -299,7 +331,57 @@ const handlers = {
     return { searchTerms: next };
   },
 
-  EXPORT: (msg) => exportData(msg.format, msg.groupId),
+  /* ---- 조회수 보강 큐 ---- */
+
+  /** content.js 가 다음에 확인할 글 하나를 받아간다. 없으면 null. */
+  NEXT_ENRICH: async () => {
+    const { viewQueue, posts, settings } = await getAll();
+    if (!settings.enrichViews || !settings.collecting) return { job: null };
+    while (viewQueue.length) {
+      const id = viewQueue[0];
+      const post = posts.find((p) => p.id === id);
+      if (post && post.counts?.views === null && !post.viewsCheckedAt) {
+        return { job: { id, url: post.url }, remaining: viewQueue.length };
+      }
+      viewQueue.shift();   // 이미 채워졌거나 사라진 글은 버린다
+    }
+    await set({ [KEYS.VIEW_QUEUE]: [] });
+    return { job: null, remaining: 0 };
+  },
+
+  /** 확인 결과를 반영한다. views 가 null 이어도 다시 시도하지 않도록 표시만 남긴다. */
+  ENRICH_RESULT: async (msg) => {
+    const { posts, viewQueue, stats } = await getAll();
+    const now = new Date().toISOString();
+    const next = posts.map((p) => {
+      if (p.id !== msg.id) return p;
+      return {
+        ...p,
+        counts: { ...p.counts, views: msg.views ?? p.counts?.views ?? null },
+        viewsCheckedAt: now
+      };
+    });
+    stats.enrichTried += 1;
+    if (msg.views !== null && msg.views !== undefined) stats.enrichFilled += 1;
+
+    await set({
+      [KEYS.POSTS]: next,
+      [KEYS.VIEW_QUEUE]: viewQueue.filter((id) => id !== msg.id),
+      [KEYS.STATS]: stats
+    });
+    return { ok: true };
+  },
+
+  /* ---- 결과 페이지 필터 ---- */
+
+  SET_VIEW_FILTERS: async (msg) => {
+    const { viewFilters } = await getAll();
+    const next = { ...DEFAULT_VIEW_FILTERS, ...viewFilters, ...msg.filters };
+    await set({ [KEYS.VIEW_FILTERS]: next });
+    return { viewFilters: next };
+  },
+
+  EXPORT: (msg) => exportData(msg.format, msg.groupId, msg.ids),
 
   CLEAR_POSTS: async () => {
     await set({ [KEYS.POSTS]: [], [KEYS.STATS]: { ...DEFAULT_STATS } });

@@ -40,6 +40,14 @@
       <label class="row">추천 재계산 주기 <input type="number" id="suggestEvery" min="10" step="10" class="num" /> 건</label>
 
       <div class="sep"></div>
+      <p class="hint">쓰레드는 피드에 조회수를 잘 안 보여줍니다. 댓글이 많이 달린 글만 골라
+        상세 페이지를 한 번 더 읽어 조회수를 채웁니다.</p>
+      <label class="row"><input type="checkbox" id="enrichViews" /> 조회수 따로 확인하기</label>
+      <label class="row">댓글 <input type="number" id="enrichMinReplies" min="0" step="5" class="num" /> 개 이상인 글만</label>
+      <label class="row">확인 간격 <input type="number" id="enrichMinDelayMs" min="5000" step="1000" class="num" /> ms 이상 (랜덤)</label>
+      <div class="stats" id="enrichStats"></div>
+
+      <div class="sep"></div>
       <p class="hint">검색어로 바로 수집하기. 자주 쓰는 검색어를 저장해두면 클릭 한 번에 열립니다.</p>
       <div class="row">
         <input type="text" id="newSearchTerm" class="grow" placeholder="검색어 추가 (예: 청국장 어디서 사요)" />
@@ -90,6 +98,9 @@
     <!-- 결과 -->
     <section class="panel" data-panel="results">
       <div class="row">
+        <button id="openResults" class="primary grow">결과 크게 보기 (이미지 · 조회수 · 필터)</button>
+      </div>
+      <div class="row">
         <select id="filterGroup" class="grow"></select>
         <button id="exportCsv">CSV</button>
         <button id="exportJson">JSON</button>
@@ -103,6 +114,6 @@
     </section>
   </main>
 
-  <script src="popup.js"></script>
+  <script type="module" src="popup.js"></script>
 </body>
 </html>

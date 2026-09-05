@@ -26,7 +26,17 @@ html = html.replace(
     '<script src="popup.js"></script>',
     '<script type="module" src="background.js"></script>\n  <script type="module" src="popup.js"></script>')
 (d / 'harness.html').write_text(html, encoding='utf-8')
+
+# 결과 페이지도 같은 스텁 위에서 띄운다
+r = (d / 'results.html').read_text(encoding='utf-8')
+r = r.replace('<link rel="stylesheet" href="results.css" />',
+              '<link rel="stylesheet" href="results.css" />\n  <script src="chrome-stub.js"></script>')
+r = r.replace('<script type="module" src="results.js"></script>',
+              '<script type="module" src="background.js"></script>\n  <script type="module" src="results.js"></script>')
+(d / 'results_harness.html').write_text(r, encoding='utf-8')
 PY
 
-echo "http://localhost:$port/harness.html  (Ctrl+C 로 종료)"
+echo "팝업:   http://localhost:$port/harness.html"
+echo "결과:   http://localhost:$port/results_harness.html"
+echo "(Ctrl+C 로 종료)"
 cd "$out" && python3 -m http.server "$port"

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "쓰레드 레퍼런스 수집기",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Threads(쓰레드)에서 구매 의도 키워드가 포함된 글을 키워드별로 수집하는 레퍼런스 수집기.",
   "permissions": [
     "storage",
@@ -51,5 +51,16 @@
     "32": "icons/icon32.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/counts.js"
+      ],
+      "matches": [
+        "https://*.threads.com/*",
+        "https://*.threads.net/*"
+      ]
+    }
+  ]
 }

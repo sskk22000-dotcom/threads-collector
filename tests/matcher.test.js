@@ -106,6 +106,38 @@ check('연속 공백 정리', normalizeSearchTerm('  청국장   어디서  사�
 check('검색 URL 인코딩', searchUrl('어디서 사요').indexOf('%EC%96%B4%EB%94%94%EC%84%9C') > 0);
 check('프로필 URL 생성', profileUrl('@BanChan') === 'https://www.threads.com/@banchan');
 
+/* ---------------------------------------------------- 숫자 표기 파싱 */
+OUT.push('숫자 표기 파싱');
+check('천 단위 구분자', parseCount('1,234') === 1234);
+check('만 단위', parseCount('1.2만') === 12000);
+check('억 단위', parseCount('2억') === 200000000);
+check('K 접미사', parseCount('3.4K') === 3400);
+check('M 접미사', parseCount('2.1M') === 2100000);
+check('레이블이 붙어 있어도 추출', parseCount('조회수 1.2만회') === 12000);
+check('좋아요 레이블', parseCount('좋아요 523개') === 523);
+check('숫자 0 은 0 으로 (모름 아님)', parseCount('0') === 0);
+check('숫자 없으면 null', parseCount('좋아요') === null && parseCount('') === null && parseCount(null) === null);
+check('숫자 타입 그대로', parseCount(4321) === 4321);
+
+OUT.push('숫자 표기 출력');
+check('만 단위로 축약', formatCount(12345) === '1.2만');
+check('만 미만은 구분자', formatCount(1234) === '1,234');
+check('모르면 대시', formatCount(null) === '—');
+
+OUT.push('임계값 필터');
+check('기준 미달은 탈락', passesThreshold(500, 10000, false) === false);
+check('기준 이상은 통과', passesThreshold(20000, 10000, false) === true);
+check('기준이 0 이면 항상 통과', passesThreshold(null, 0, false) === true);
+check('모르는 값은 기본적으로 탈락', passesThreshold(null, 10000, false) === false);
+check('모르는 값 포함 옵션', passesThreshold(null, 10000, true) === true);
+
+OUT.push('상세 페이지 조회수 추출');
+check('임베드 JSON 에서 추출', extractViewCount('{"a":1,"view_count":45210,"b":2}') === 45210);
+check('문자열로 감싼 값', extractViewCount('"views_count":"8800"') === 8800);
+check('화면 표기에서 추출', extractViewCount('<span>조회수 3.2만회</span>') === 32000);
+check('영문 표기에서 추출', extractViewCount('<span>12.5K views</span>') === 12500);
+check('없으면 null', extractViewCount('<html>아무것도 없음</html>') === null && extractViewCount('') === null);
+
 OUT.push('');
 OUT.push('통과 ' + pass + ' / 실패 ' + fail);
 

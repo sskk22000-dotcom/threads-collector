@@ -1,4 +1,5 @@
-'use strict';
+import { highlightHtml } from './matcher.js';
+import { formatCount } from './counts.js';
 
 const $ = (sel) => document.querySelector(sel);
 const send = (msg) => chrome.runtime.sendMessage(msg);
@@ -25,6 +26,12 @@ function renderSettings() {
   $('#autoScrollDelayMs').value = s.autoScrollDelayMs;
   $('#minChars').value = s.minChars;
   $('#suggestEvery').value = s.suggestEvery;
+  $('#enrichViews').checked = s.enrichViews !== false;
+  $('#enrichMinReplies').value = s.enrichMinReplies;
+  $('#enrichMinDelayMs').value = s.enrichMinDelayMs;
+  $('#enrichStats').textContent = state.viewQueue.length || state.stats.enrichTried
+    ? `확인 대기 ${state.viewQueue.length}건 · 확인 ${state.stats.enrichTried}건 중 ${state.stats.enrichFilled}건 채움`
+    : '';
 
   const approved = state.groups.filter((g) => g.status === 'approved');
   $('#searchKeyword').innerHTML = approved
@@ -115,21 +122,6 @@ function renderSuggestions() {
     : '<div class="empty">후보 없음. 글을 조금 더 수집한 뒤 “지금 다시 뽑기”를 눌러보세요.</div>';
 }
 
-/**
- * 키워드는 공백을 뺀 정규화 형태라 원문과 그대로 일치하지 않는다.
- * 글자 사이에 공백/문장부호가 끼어드는 것을 허용하는 패턴으로 하이라이트한다.
- * (HTML 엔티티를 쪼갤 위험이 없도록 한글/영숫자 키워드에만 적용)
- */
-function highlight(escapedHtml, keyword) {
-  if (!/^[가-힣a-z0-9]+$/i.test(keyword)) return escapedHtml;
-  const pattern = keyword.split('').join('[\\s·,.!?~\\-_]{0,3}');
-  try {
-    return escapedHtml.replace(new RegExp(pattern, 'gi'), (m) => `<span class="kw">${m}</span>`);
-  } catch {
-    return escapedHtml;
-  }
-}
-
 function renderResults() {
   const groupFilter = $('#filterGroup').value;
   const q = query.trim().toLowerCase();
@@ -142,7 +134,7 @@ function renderResults() {
   $('#results').innerHTML = items.length
     ? items.map((p) => {
         let text = esc(p.text.slice(0, 400));
-        for (const kw of p.keywords || []) text = highlight(text, kw);
+        for (const kw of p.keywords || []) text = highlightHtml(text, kw);
         return `
           <div class="post">
             <div class="post-head">
@@ -153,7 +145,9 @@ function renderResults() {
             <div class="post-meta">
               <span>${esc((p.groupLabels || []).join(', '))}</span>
               <span>${esc((p.keywords || []).join(', '))}</span>
-              ${p.counts?.likes != null ? `<span>♥ ${p.counts.likes}</span>` : ''}
+              ${p.counts?.views != null ? `<span>조회 ${formatCount(p.counts.views)}</span>` : ''}
+              ${p.counts?.likes != null ? `<span>♥ ${formatCount(p.counts.likes)}</span>` : ''}
+              ${p.counts?.replies != null ? `<span>댓글 ${formatCount(p.counts.replies)}</span>` : ''}
               ${p.links?.length ? `<span>🔗 ${p.links.length}</span>` : ''}
               <span>${p.postedAt ? new Date(p.postedAt).toLocaleString('ko-KR') : ''}</span>
             </div>
@@ -208,7 +202,8 @@ async function patchSettings(patch) {
 $('#collecting').addEventListener('change', (e) => patchSettings({ collecting: e.target.checked }));
 $('#autoScroll').addEventListener('change', (e) => patchSettings({ autoScroll: e.target.checked }));
 $('#highlight').addEventListener('change', (e) => patchSettings({ highlight: e.target.checked }));
-for (const id of ['autoScrollDelayMs', 'minChars', 'suggestEvery']) {
+$('#enrichViews').addEventListener('change', (e) => patchSettings({ enrichViews: e.target.checked }));
+for (const id of ['autoScrollDelayMs', 'minChars', 'suggestEvery', 'enrichMinReplies', 'enrichMinDelayMs']) {
   $(`#${id}`).addEventListener('change', (e) => patchSettings({ [id]: Number(e.target.value) }));
 }
 
@@ -325,6 +320,10 @@ $('#clearPosts').addEventListener('click', async () => {
   if (!confirm('수집한 글을 전부 삭제할까요? (키워드 설정은 유지됩니다)')) return;
   await send({ type: 'CLEAR_POSTS' });
   await refresh();
+});
+
+$('#openResults').addEventListener('click', () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL('src/results.html') });
 });
 
 $('#exportCsv').addEventListener('click', () => send({ type: 'EXPORT', format: 'csv', groupId: $('#filterGroup').value }));

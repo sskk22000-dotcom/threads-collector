@@ -68,3 +68,18 @@ export function snippetAround(text, keyword, radius = 40) {
   const end = Math.min(flat.length, raw + radius);
   return (start > 0 ? '…' : '') + flat.slice(start, end) + (end < flat.length ? '…' : '');
 }
+
+/**
+ * 키워드는 공백을 뺀 정규화 형태라 원문과 그대로 일치하지 않는다.
+ * 글자 사이에 공백/문장부호가 끼어드는 것을 허용하는 패턴으로 하이라이트한다.
+ * (HTML 엔티티를 쪼갤 위험이 없도록 한글/영숫자 키워드에만 적용)
+ */
+export function highlightHtml(escapedHtml, keyword, className = 'kw') {
+  if (!/^[가-힣a-z0-9]+$/i.test(keyword || '')) return escapedHtml;
+  const pattern = keyword.split('').join('[\\s·,.!?~\\-_]{0,3}');
+  try {
+    return escapedHtml.replace(new RegExp(pattern, 'gi'), (m) => `<span class="${className}">${m}</span>`);
+  } catch {
+    return escapedHtml;
+  }
+}

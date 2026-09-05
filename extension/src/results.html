@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="results.css" />
+  <title>수집 결과 — 쓰레드 레퍼런스 수집기</title>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <h1>수집 결과</h1>
+      <div class="summary" id="summary">불러오는 중…</div>
+    </div>
+  </header>
+
+  <section class="filters">
+    <div class="filters-inner">
+      <label class="f">조회수 <b>≥</b>
+        <input type="number" id="minViews" min="0" step="1000" />
+      </label>
+      <label class="f">댓글수 <b>≥</b>
+        <input type="number" id="minReplies" min="0" step="5" />
+      </label>
+      <label class="f">좋아요 <b>≥</b>
+        <input type="number" id="minLikes" min="0" step="10" />
+      </label>
+      <label class="f">그룹
+        <select id="group"></select>
+      </label>
+      <label class="f">정렬
+        <select id="sort">
+          <option value="views">조회수 많은 순</option>
+          <option value="likes">좋아요 많은 순</option>
+          <option value="replies">댓글 많은 순</option>
+          <option value="reposts">리포스트 많은 순</option>
+          <option value="collected">최근 수집 순</option>
+          <option value="posted">최근 작성 순</option>
+        </select>
+      </label>
+      <label class="f grow">검색
+        <input type="search" id="q" placeholder="본문 · 작성자 · 키워드" />
+      </label>
+      <label class="f chk">
+        <input type="checkbox" id="includeUnknown" />
+        수치가 안 잡힌 글도 포함
+      </label>
+      <label class="f chk">
+        <input type="checkbox" id="onlyImages" />
+        이미지 있는 글만
+      </label>
+      <span class="spacer"></span>
+      <button id="reset">필터 초기화</button>
+      <button id="exportCsv">CSV</button>
+      <button id="exportJson">JSON</button>
+      <button id="exportMd">MD</button>
+    </div>
+  </section>
+
+  <main id="list"></main>
+
+  <script type="module" src="results.js"></script>
+</body>
+</html>

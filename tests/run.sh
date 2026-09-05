@@ -11,7 +11,7 @@ trap 'rm -rf "$tmp"' EXIT
 
 bundle="$tmp/bundle.js"
 {
-  for f in keywords.js matcher.js suggest.js accounts.js; do
+  for f in keywords.js matcher.js suggest.js accounts.js counts.js; do
     sed -E 's/^export (default )?//; /^import .*from .*;$/d' "$src/$f"
   done
   cat "$root/tests/matcher.test.js"

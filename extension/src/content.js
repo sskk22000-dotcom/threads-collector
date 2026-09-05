@@ -24,6 +24,9 @@
   let accountHandles = new Set();   // 레퍼런스 계정은 짧은 글도 흘려보낸다
   let scanTimer = null;
   let scrollTimer = null;
+  let enrichTimer = null;
+  let enrichedThisRun = 0;
+  let countsModule = null;
 
   /* ---------------------------------------------------------------- 추출 */
 
@@ -55,18 +58,53 @@
     return kept.join('\n').trim();
   }
 
-  function readCounts(container) {
-    const counts = { likes: null, replies: null, reposts: null };
-    for (const el of container.querySelectorAll('[aria-label]')) {
-      const label = el.getAttribute('aria-label') || '';
-      const num = (label.match(/([\d,]+)/) || [])[1];
-      if (!num) continue;
-      const value = Number(num.replace(/,/g, ''));
-      if (/좋아요|like/i.test(label) && counts.likes === null) counts.likes = value;
-      else if (/답글|repl/i.test(label) && counts.replies === null) counts.replies = value;
-      else if (/리포스트|repost/i.test(label) && counts.reposts === null) counts.reposts = value;
+  /**
+   * 숫자 문자열을 그대로 넘긴다. 실제 파싱은 background 의 counts.js 가 한다
+   * ("1.2만" / "3.4K" / "1,234" 처리를 한 곳에만 두기 위해서).
+   */
+  function readCountSources(container) {
+    const raw = { likes: null, replies: null, reposts: null, views: null };
+    const put = (key, value) => { if (value && raw[key] === null) raw[key] = String(value); };
+
+    for (const el of container.querySelectorAll('[aria-label], [title]')) {
+      const label = el.getAttribute('aria-label') || el.getAttribute('title') || '';
+      if (!/\d/.test(label)) continue;
+      if (/조회|view/i.test(label)) put('views', label);
+      else if (/좋아요|like/i.test(label)) put('likes', label);
+      else if (/답글|repl|comment/i.test(label)) put('replies', label);
+      else if (/리포스트|repost/i.test(label)) put('reposts', label);
     }
-    return counts;
+
+    // aria-label 에 숫자가 없는 레이아웃 대비: 본문 텍스트에서 직접 긁는다
+    const text = container.innerText || '';
+    const grab = (re) => { const m = text.match(re); return m ? m[1] : null; };
+    put('views', grab(/조회\s*수?\s*([\d,.]+\s*[억만천KkMmBb]?)/) || grab(/([\d,.]+\s*[KkMmBb]?)\s*views?/i));
+    put('likes', grab(/좋아요\s*([\d,.]+\s*[억만천KkMmBb]?)/) || grab(/([\d,.]+\s*[KkMmBb]?)\s*likes?/i));
+    put('replies', grab(/답글\s*([\d,.]+\s*[억만천KkMmBb]?)/) || grab(/([\d,.]+\s*[KkMmBb]?)\s*repl/i));
+    put('reposts', grab(/리포스트\s*([\d,.]+\s*[억만천KkMmBb]?)/) || grab(/([\d,.]+\s*[KkMmBb]?)\s*reposts?/i));
+
+    return raw;
+  }
+
+  /** 본문 이미지. 프로필 사진(작고, 작성자 링크 안에 있음)은 걸러낸다. */
+  function readImages(container, author) {
+    const out = [];
+    for (const img of container.querySelectorAll('img')) {
+      const src = img.currentSrc || img.src;
+      if (!src || src.startsWith('data:')) continue;
+
+      const alt = img.getAttribute('alt') || '';
+      if (/프로필 사진|profile picture|avatar/i.test(alt)) continue;
+
+      const inAuthorLink = img.closest(`a[href*="/@${author}"]`);
+      const rect = img.getBoundingClientRect();
+      const big = Math.max(rect.width, img.naturalWidth || 0) >= 80;
+      if (inAuthorLink && !big) continue;
+      if (!big) continue;
+
+      out.push(src);
+    }
+    return [...new Set(out)].slice(0, 4);
   }
 
   function externalLinks(container) {
@@ -117,7 +155,8 @@
           url: `${location.origin}/@${author}/post/${postId}`,
           text,
           postedAt: timeEl ? timeEl.getAttribute('datetime') : null,
-          counts: readCounts(container),
+          countsRaw: readCountSources(container),
+          images: readImages(container, author),
           links: externalLinks(container),
           source: location.pathname + location.search
         }
@@ -176,13 +215,91 @@
     scanTimer = setTimeout(scan, delay);
   }
 
-  function applyAutoScroll() {
-    clearInterval(scrollTimer);
+  /**
+   * 다음 스크롤까지의 대기 시간. 기준값을 그대로 쓰지 않고 매번 흔든다.
+   * 똑같은 간격이 반복되면 사람이 보는 것과 다르게 보이고, 서버에도 규칙적인 부하가 간다.
+   */
+  function nextScrollDelay() {
+    const base = Math.max(1200, settings.autoScrollDelayMs || 2500);
+    let delay = base * (0.6 + Math.random() * 1.2);          // 기준의 0.6~1.8배
+    if (Math.random() < 0.12) delay += 2500 + Math.random() * 5000;   // 가끔 글을 읽듯 길게 쉼
+    return Math.round(delay);
+  }
+
+  function humanScrollStep() {
     if (!settings.collecting || !settings.autoScroll) return;
-    scrollTimer = setInterval(() => {
-      window.scrollBy({ top: Math.round(window.innerHeight * 0.85), behavior: 'smooth' });
-      scheduleScan(1200);
-    }, Math.max(1000, settings.autoScrollDelayMs || 2500));
+
+    // 가끔은 살짝 위로 되돌아간다 (놓친 글을 다시 보는 사람의 동작)
+    const back = Math.random() < 0.08;
+    const ratio = back ? -(0.15 + Math.random() * 0.2) : 0.55 + Math.random() * 0.4;
+
+    window.scrollBy({ top: Math.round(window.innerHeight * ratio), behavior: 'smooth' });
+    scheduleScan(900 + Math.round(Math.random() * 800));
+
+    scrollTimer = setTimeout(humanScrollStep, nextScrollDelay());
+  }
+
+  function applyAutoScroll() {
+    clearTimeout(scrollTimer);
+    if (!settings.collecting || !settings.autoScroll) return;
+    scrollTimer = setTimeout(humanScrollStep, nextScrollDelay());
+  }
+
+  /* -------------------------------------------------------- 조회수 보강 */
+
+  // counts.js 는 ES 모듈이라 콘텐츠 스크립트에서 동적으로 불러 쓴다.
+  // 숫자 해석 규칙을 한 곳에만 두기 위해서다.
+  async function getCounts() {
+    if (!countsModule) countsModule = await import(chrome.runtime.getURL('src/counts.js'));
+    return countsModule;
+  }
+
+  function nextEnrichDelay() {
+    const base = Math.max(5000, settings.enrichMinDelayMs || 8000);
+    return Math.round(base * (1 + Math.random() * 1.6));   // 기준의 1~2.6배로 흔든다
+  }
+
+  /**
+   * 큐에서 글을 하나씩 꺼내 상세 페이지를 읽고 조회수를 채운다.
+   * 페이지와 같은 출처로 한 번에 하나씩만, 간격도 매번 다르게 요청한다.
+   */
+  async function enrichStep() {
+    if (!settings.collecting || settings.enrichViews === false) return;
+    if (enrichedThisRun >= (settings.enrichMaxPerRun || 40)) return;
+
+    let res;
+    try {
+      res = await chrome.runtime.sendMessage({ type: 'NEXT_ENRICH' });
+    } catch {
+      return;   // 확장이 리로드된 경우
+    }
+
+    const job = res && res.job;
+    if (job) {
+      enrichedThisRun += 1;
+      let views = null;
+      try {
+        const response = await fetch(job.url, { credentials: 'include' });
+        if (response.ok) {
+          const { extractViewCount } = await getCounts();
+          views = extractViewCount(await response.text());
+        }
+      } catch {
+        views = null;   // 실패해도 다시 시도하지 않는다 (background 가 확인 시각을 남김)
+      }
+      try {
+        await chrome.runtime.sendMessage({ type: 'ENRICH_RESULT', id: job.id, views });
+      } catch { /* noop */ }
+    }
+
+    // 큐가 비어 있으면 느긋하게 다시 확인한다
+    enrichTimer = setTimeout(enrichStep, job ? nextEnrichDelay() : 20000);
+  }
+
+  function applyEnrich() {
+    clearTimeout(enrichTimer);
+    if (!settings.collecting || settings.enrichViews === false) return;
+    enrichTimer = setTimeout(enrichStep, 4000 + Math.random() * 4000);
   }
 
   async function loadSettings() {
@@ -190,7 +307,8 @@
     settings = { ...settings, ...(raw.settings || {}) };
     accountHandles = new Set((raw.accounts || []).map((a) => String(a.username || '').toLowerCase()));
     applyAutoScroll();
-    if (!settings.collecting) clearInterval(scrollTimer);
+    applyEnrich();
+    if (!settings.collecting) { clearTimeout(scrollTimer); clearTimeout(enrichTimer); }
     if (!settings.highlight) clearMarks();
     scheduleScan(200);
   }
