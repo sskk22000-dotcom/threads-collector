@@ -33,6 +33,42 @@ function renderSettings() {
     .join('') || '<option value="">승인된 키워드 없음</option>';
 }
 
+function renderSearchTerms() {
+  const list = state.searchTerms || [];
+  $('#searchTerms').innerHTML = list.length
+    ? `<div class="chips">${list.map((t) => `
+        <span class="chip">
+          <button class="link" data-search="${esc(t.value)}" title="쓰레드에서 검색">${esc(t.value)}</button>
+          <button data-rmsearch="${esc(t.value)}" title="삭제">×</button>
+        </span>`).join('')}</div>`
+    : '<p class="muted">저장한 검색어가 없습니다.</p>';
+}
+
+function renderAccounts() {
+  const list = state.accounts || [];
+  const counts = new Map();
+  for (const p of state.posts) if (p.account) counts.set(p.account, (counts.get(p.account) || 0) + 1);
+
+  $('#accounts').innerHTML = list.length
+    ? list.map((a) => `
+        <div class="group">
+          <div class="group-head">
+            <span class="group-title">@${esc(a.username)}
+              <span class="badge">${counts.get(a.username) || 0}건</span>
+            </span>
+            <span>
+              <button class="tiny" data-profile="${esc(a.username)}">프로필 열기</button>
+              <button class="tiny danger" data-rmaccount="${esc(a.username)}">삭제</button>
+            </span>
+          </div>
+          <label class="row" style="margin:6px 0 0">
+            <input type="checkbox" data-collectall="${esc(a.username)}" ${a.collectAll ? 'checked' : ''} />
+            키워드가 안 맞아도 이 계정 글은 전부 수집
+          </label>
+        </div>`).join('')
+    : '<div class="empty">등록한 계정이 없습니다. 위에 @아이디를 넣어 추가하세요.</div>';
+}
+
 function renderGroups() {
   $('#groups').innerHTML = state.groups.map((g) => {
     const on = g.status === 'approved';
@@ -130,9 +166,10 @@ function renderFilterOptions() {
   const current = $('#filterGroup').value;
   const counts = new Map();
   for (const p of state.posts) for (const g of p.groups || []) counts.set(g, (counts.get(g) || 0) + 1);
+  const all = state.accountGroup ? [...state.groups, state.accountGroup] : state.groups;
   $('#filterGroup').innerHTML =
     `<option value="">전체 (${state.posts.length})</option>` +
-    state.groups.map((g) => `<option value="${esc(g.id)}">${esc(g.label)} (${counts.get(g.id) || 0})</option>`).join('');
+    all.map((g) => `<option value="${esc(g.id)}">${esc(g.label)} (${counts.get(g.id) || 0})</option>`).join('');
   $('#filterGroup').value = current;
 }
 
@@ -140,6 +177,8 @@ function renderAll() {
   renderHeader();
   renderSettings();
   renderGroups();
+  renderSearchTerms();
+  renderAccounts();
   renderSuggestions();
   renderFilterOptions();
   renderResults();
@@ -209,6 +248,69 @@ $('#runSuggest').addEventListener('click', async () => {
   await refresh();
 });
 
+/* ---- 검색어 ---- */
+
+function flash(sel, message) {
+  const el = $(sel);
+  if (!message) { el.classList.add('hidden'); return; }
+  el.textContent = message;
+  el.classList.remove('hidden');
+  setTimeout(() => el.classList.add('hidden'), 4000);
+}
+
+$('#addSearchTerm').addEventListener('click', async () => {
+  const value = $('#newSearchTerm').value.trim();
+  if (!value) return;
+  const res = await send({ type: 'ADD_SEARCH_TERM', value });
+  if (res?.error) return flash('#searchTermError', res.error);
+  if (res?.duplicate) flash('#searchTermError', '이미 저장된 검색어입니다.');
+  $('#newSearchTerm').value = '';
+  await refresh();
+});
+$('#newSearchTerm').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#addSearchTerm').click(); });
+
+$('#searchTerms').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  if (btn.dataset.search) {
+    chrome.tabs.create({ url: `https://www.threads.com/search?q=${encodeURIComponent(btn.dataset.search)}&serp_type=default` });
+  } else if (btn.dataset.rmsearch) {
+    await send({ type: 'REMOVE_SEARCH_TERM', value: btn.dataset.rmsearch });
+    await refresh();
+  }
+});
+
+/* ---- 레퍼런스 계정 ---- */
+
+$('#addAccount').addEventListener('click', async () => {
+  const username = $('#newAccount').value.trim();
+  if (!username) return;
+  const res = await send({ type: 'ADD_ACCOUNT', username });
+  if (res?.error) return flash('#accountError', res.error);
+  if (res?.duplicate) flash('#accountError', '이미 등록된 계정입니다.');
+  $('#newAccount').value = '';
+  await refresh();
+});
+$('#newAccount').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#addAccount').click(); });
+
+$('#accounts').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  if (btn.dataset.profile) {
+    chrome.tabs.create({ url: `https://www.threads.com/@${btn.dataset.profile}` });
+  } else if (btn.dataset.rmaccount) {
+    await send({ type: 'REMOVE_ACCOUNT', username: btn.dataset.rmaccount });
+    await refresh();
+  }
+});
+
+$('#accounts').addEventListener('change', async (e) => {
+  const box = e.target.closest('input[data-collectall]');
+  if (!box) return;
+  await send({ type: 'UPDATE_ACCOUNT', username: box.dataset.collectall, patch: { collectAll: box.checked } });
+  await refresh();
+});
+
 $('#filterGroup').addEventListener('change', renderResults);
 $('#search').addEventListener('input', (e) => { query = e.target.value; renderResults(); });
 
@@ -249,6 +351,8 @@ $('#openThreads').addEventListener('click', (e) => {
   await refresh();
 })();
 
+// background 가 상태를 바꾸면 팝업도 따라 갱신한다
+const WATCHED = ['posts', 'stats', 'suggestions', 'groups', 'accounts', 'searchTerms', 'settings'];
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && (changes.posts || changes.stats || changes.suggestions)) refresh();
+  if (area === 'local' && WATCHED.some((k) => k in changes)) refresh();
 });

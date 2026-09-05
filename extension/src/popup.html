@@ -23,6 +23,7 @@
   <nav class="tabs">
     <button class="tab active" data-tab="collect">수집</button>
     <button class="tab" data-tab="keywords">키워드</button>
+    <button class="tab" data-tab="accounts">계정</button>
     <button class="tab" data-tab="suggest">추천 <span class="dot hidden" id="suggestDot"></span></button>
     <button class="tab" data-tab="results">결과</button>
   </nav>
@@ -39,11 +40,30 @@
       <label class="row">추천 재계산 주기 <input type="number" id="suggestEvery" min="10" step="10" class="num" /> 건</label>
 
       <div class="sep"></div>
-      <p class="hint">키워드로 바로 검색해서 수집하기</p>
+      <p class="hint">검색어로 바로 수집하기. 자주 쓰는 검색어를 저장해두면 클릭 한 번에 열립니다.</p>
+      <div class="row">
+        <input type="text" id="newSearchTerm" class="grow" placeholder="검색어 추가 (예: 청국장 어디서 사요)" />
+        <button id="addSearchTerm">추가</button>
+      </div>
+      <div id="searchTermError" class="warn hidden"></div>
+      <div id="searchTerms"></div>
+
       <div class="row">
         <select id="searchKeyword" class="grow"></select>
-        <button id="openSearch">검색 열기</button>
+        <button id="openSearch">키워드로 검색</button>
       </div>
+    </section>
+
+    <!-- 계정 -->
+    <section class="panel" data-panel="accounts">
+      <p class="hint">레퍼런스로 삼는 쓰레드 계정입니다.
+        <b>전체 수집</b>을 켜면 키워드가 하나도 안 맞아도 그 계정 글은 전부 담습니다.</p>
+      <div class="row">
+        <input type="text" id="newAccount" class="grow" placeholder="@아이디 또는 프로필 주소" />
+        <button id="addAccount">추가</button>
+      </div>
+      <div id="accountError" class="warn hidden"></div>
+      <div id="accounts"></div>
     </section>
 
     <!-- 키워드 -->

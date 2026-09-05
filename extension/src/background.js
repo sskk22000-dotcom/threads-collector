@@ -3,6 +3,7 @@
 import { KEYS, DEFAULT_SETTINGS, DEFAULT_STATS, getAll, set, ensureSeeded } from './storage.js';
 import { matchKeywords, snippetAround } from './matcher.js';
 import { suggestKeywords } from './suggest.js';
+import { ACCOUNT_GROUP, findAccount, normalizeHandle, normalizeSearchTerm } from './accounts.js';
 
 const CORPUS_MAX = 400;
 const CUSTOM_GROUP = {
@@ -49,18 +50,31 @@ async function handlePosts(incoming) {
     corpus.push(post.text);
 
     const { hits, groups } = matchKeywords(post.text, state.groups, { onlyApproved: true });
-    if (!hits.length) continue;
-    matched.push({ id: post.id, hits });
+    const account = findAccount(post.author, state.accounts);
+
+    // collectAll 계정이면 키워드가 안 맞아도 담는다
+    const keep = hits.length > 0 || Boolean(account && account.collectAll);
+    if (!keep) continue;
+
+    const displayHits = hits.length
+      ? hits
+      : [{ group: ACCOUNT_GROUP.id, label: ACCOUNT_GROUP.label, keyword: `@${normalizeHandle(post.author)}` }];
+    matched.push({ id: post.id, hits: displayHits });
 
     if (existingIds.has(post.id)) continue;
     existingIds.add(post.id);
 
+    const postGroups = account ? [...new Set([...groups, ACCOUNT_GROUP.id])] : groups;
+    const postLabels = [...new Set(hits.map((h) => h.label))];
+    if (account) postLabels.push(ACCOUNT_GROUP.label);
+
     posts.push({
       ...post,
       keywords: [...new Set(hits.map((h) => h.keyword))],
-      groups,
-      groupLabels: [...new Set(hits.map((h) => h.label))],
-      snippet: snippetAround(post.text, hits[0].keyword),
+      groups: postGroups,
+      groupLabels: postLabels,
+      account: account ? normalizeHandle(post.author) : null,
+      snippet: hits.length ? snippetAround(post.text, hits[0].keyword) : post.text.slice(0, 80),
       collectedAt: new Date().toISOString()
     });
     state.stats.matched += 1;
@@ -103,12 +117,12 @@ function mergeSuggestions(previous, fresh) {
 /* ------------------------------------------------------------- 내보내기 */
 
 function toCsv(posts) {
-  const cols = ['collectedAt', 'postedAt', 'author', 'url', 'groupLabels', 'keywords', 'likes', 'replies', 'reposts', 'links', 'text'];
+  const cols = ['collectedAt', 'postedAt', 'author', 'referenceAccount', 'url', 'groupLabels', 'keywords', 'likes', 'replies', 'reposts', 'links', 'text'];
   const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const rows = [cols.join(',')];
   for (const p of posts) {
     rows.push([
-      p.collectedAt, p.postedAt, p.author, p.url,
+      p.collectedAt, p.postedAt, p.author, p.account || '', p.url,
       (p.groupLabels || []).join(' | '),
       (p.keywords || []).join(' | '),
       p.counts?.likes, p.counts?.replies, p.counts?.reposts,
@@ -121,7 +135,7 @@ function toCsv(posts) {
 
 function toMarkdown(posts, groups) {
   const lines = ['# 쓰레드 레퍼런스 수집 결과', '', `- 수집 시각: ${new Date().toISOString()}`, `- 총 ${posts.length}건`, ''];
-  for (const g of groups) {
+  for (const g of [...groups, ACCOUNT_GROUP]) {
     const items = posts.filter((p) => (p.groups || []).includes(g.id));
     if (!items.length) continue;
     lines.push(`## ${g.label} (${items.length}건)`, '');
@@ -161,6 +175,7 @@ const handlers = {
     await ensureSeeded();
     const state = await getAll();
     state.groups = ensureCustomGroup(state.groups);
+    state.accountGroup = ACCOUNT_GROUP;
     return state;
   },
 
@@ -229,6 +244,59 @@ const handlers = {
     const merged = mergeSuggestions(suggestions, fresh);
     await set({ [KEYS.SUGGESTIONS]: merged });
     return { suggestions: merged, corpusSize: corpus.length };
+  },
+
+  /* ---- 레퍼런스 계정 ---- */
+
+  ADD_ACCOUNT: async (msg) => {
+    const { accounts } = await getAll();
+    const handle = normalizeHandle(msg.username);
+    if (!handle) return { error: '계정 형식을 알아볼 수 없습니다. @아이디 또는 프로필 주소를 넣어주세요.' };
+    if (findAccount(handle, accounts)) return { accounts, duplicate: true };
+    const next = [...accounts, {
+      username: handle,
+      note: msg.note || '',
+      collectAll: msg.collectAll !== false,
+      addedAt: new Date().toISOString()
+    }];
+    await set({ [KEYS.ACCOUNTS]: next });
+    return { accounts: next };
+  },
+
+  UPDATE_ACCOUNT: async (msg) => {
+    const { accounts } = await getAll();
+    const handle = normalizeHandle(msg.username);
+    const next = accounts.map((a) =>
+      normalizeHandle(a.username) === handle ? { ...a, ...msg.patch } : a);
+    await set({ [KEYS.ACCOUNTS]: next });
+    return { accounts: next };
+  },
+
+  REMOVE_ACCOUNT: async (msg) => {
+    const { accounts } = await getAll();
+    const handle = normalizeHandle(msg.username);
+    const next = accounts.filter((a) => normalizeHandle(a.username) !== handle);
+    await set({ [KEYS.ACCOUNTS]: next });
+    return { accounts: next };
+  },
+
+  /* ---- 검색어 ---- */
+
+  ADD_SEARCH_TERM: async (msg) => {
+    const { searchTerms } = await getAll();
+    const value = normalizeSearchTerm(msg.value);
+    if (!value) return { error: '검색어가 비어 있습니다.' };
+    if (searchTerms.some((t) => t.value === value)) return { searchTerms, duplicate: true };
+    const next = [...searchTerms, { value, addedAt: new Date().toISOString() }];
+    await set({ [KEYS.SEARCH_TERMS]: next });
+    return { searchTerms: next };
+  },
+
+  REMOVE_SEARCH_TERM: async (msg) => {
+    const { searchTerms } = await getAll();
+    const next = searchTerms.filter((t) => t.value !== msg.value);
+    await set({ [KEYS.SEARCH_TERMS]: next });
+    return { searchTerms: next };
   },
 
   EXPORT: (msg) => exportData(msg.format, msg.groupId),

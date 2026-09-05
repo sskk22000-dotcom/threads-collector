@@ -9,7 +9,9 @@ export const KEYS = {
   REJECTED: 'rejectedSuggestions',
   SETTINGS: 'settings',
   STATS: 'stats',
-  CORPUS: 'corpus'
+  CORPUS: 'corpus',
+  ACCOUNTS: 'accounts',
+  SEARCH_TERMS: 'searchTerms'
 };
 
 export const DEFAULT_SETTINGS = {
@@ -33,7 +35,9 @@ export async function getAll() {
     rejected: raw[KEYS.REJECTED] || [],
     settings: { ...DEFAULT_SETTINGS, ...(raw[KEYS.SETTINGS] || {}) },
     stats: { ...DEFAULT_STATS, ...(raw[KEYS.STATS] || {}) },
-    corpus: raw[KEYS.CORPUS] || []
+    corpus: raw[KEYS.CORPUS] || [],
+    accounts: raw[KEYS.ACCOUNTS] || [],
+    searchTerms: raw[KEYS.SEARCH_TERMS] || []
   };
 }
 

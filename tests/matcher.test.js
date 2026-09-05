@@ -86,6 +86,26 @@ check('구매의도 앵커 없는 표현은 제외', sugs.every(function (s) { r
 check('이미 등록된 키워드는 후보에서 제외', sugs.every(function (s) { return s.value !== '구매처'; }));
 check('후보는 자동 반영되지 않음(단순 목록)', sugs.every(function (s) { return s.count >= 2; }));
 
+/* ------------------------------------------------- 레퍼런스 계정 / 검색어 */
+OUT.push('레퍼런스 계정');
+check('@ 접두사 제거', normalizeHandle('@banchan') === 'banchan');
+check('프로필 URL 에서 핸들 추출', normalizeHandle('https://www.threads.com/@banchan') === 'banchan');
+check('글 URL 에서도 핸들 추출', normalizeHandle('threads.com/@banchan/post/abc123') === 'banchan');
+check('대문자 통일', normalizeHandle('@BanChan') === 'banchan');
+check('잘못된 입력은 빈 문자열', normalizeHandle('한글아이디') === '' && normalizeHandle('') === '');
+
+var accounts = [{ username: 'banchan', collectAll: true }, { username: 'foodie', collectAll: false }];
+check('등록된 계정 찾기', findAccount('banchan', accounts) !== null);
+check('@ 붙여도 찾기', findAccount('@BANCHAN', accounts) !== null);
+check('미등록 계정은 null', findAccount('stranger', accounts) === null);
+check('중복 등록 판정', hasAccount('https://www.threads.com/@foodie', accounts) === true);
+check('빈 목록 안전', findAccount('banchan', []) === null && findAccount('banchan', undefined) === null);
+
+OUT.push('검색어');
+check('연속 공백 정리', normalizeSearchTerm('  청국장   어디서  사요 ') === '청국장 어디서 사요');
+check('검색 URL 인코딩', searchUrl('어디서 사요').indexOf('%EC%96%B4%EB%94%94%EC%84%9C') > 0);
+check('프로필 URL 생성', profileUrl('@BanChan') === 'https://www.threads.com/@banchan');
+
 OUT.push('');
 OUT.push('통과 ' + pass + ' / 실패 ' + fail);
 

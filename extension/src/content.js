@@ -21,6 +21,7 @@
   const sentIds = new Set();
   const matchedIds = new Set();
   let settings = { collecting: false, autoScroll: false, autoScrollDelayMs: 2500, highlight: true, minChars: 10 };
+  let accountHandles = new Set();   // 레퍼런스 계정은 짧은 글도 흘려보낸다
   let scanTimer = null;
   let scrollTimer = null;
 
@@ -103,7 +104,8 @@
       if (prev && prev.container.contains(container) === false) continue;
 
       const text = cleanText(container, author);
-      if (text.length < (settings.minChars || 10)) continue;
+      const isReference = accountHandles.has(author.toLowerCase());
+      if (!isReference && text.length < (settings.minChars || 10)) continue;
 
       const timeEl = container.querySelector('time[datetime]');
       byId.set(postId, {
@@ -184,8 +186,9 @@
   }
 
   async function loadSettings() {
-    const raw = await chrome.storage.local.get('settings');
+    const raw = await chrome.storage.local.get(['settings', 'accounts']);
     settings = { ...settings, ...(raw.settings || {}) };
+    accountHandles = new Set((raw.accounts || []).map((a) => String(a.username || '').toLowerCase()));
     applyAutoScroll();
     if (!settings.collecting) clearInterval(scrollTimer);
     if (!settings.highlight) clearMarks();
@@ -194,8 +197,8 @@
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
-    if (changes.settings) loadSettings();
-    if (changes.groups) sentIds.clear();      // 키워드가 바뀌면 화면의 글을 다시 판정
+    if (changes.settings || changes.accounts) loadSettings();
+    if (changes.groups || changes.accounts) sentIds.clear();   // 기준이 바뀌면 화면의 글을 다시 판정
   });
 
   const observer = new MutationObserver(() => scheduleScan());
