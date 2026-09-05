@@ -1,5 +1,6 @@
 import { highlightHtml } from './matcher.js';
 import { formatCount } from './counts.js';
+import { DEFAULT_SETTINGS, DEFAULT_STATS } from './storage.js';
 
 const $ = (sel) => document.querySelector(sel);
 const send = (msg) => chrome.runtime.sendMessage(msg);
@@ -12,7 +13,9 @@ let query = '';
 /* ------------------------------------------------------------------ 렌더 */
 
 function renderHeader() {
-  const { stats, posts, settings } = state;
+  const posts = state.posts || [];
+  const settings = state.settings || {};
+  const stats = { ...DEFAULT_STATS, ...(state.stats || {}) };
   $('#collecting').checked = !!settings.collecting;
   $('#stats').textContent =
     `수집 ${posts.length}건 · 스캔 ${stats.scanned}건` +
@@ -20,7 +23,12 @@ function renderHeader() {
 }
 
 function renderSettings() {
-  const s = state.settings;
+  // 확장을 새로고침하기 전에는 서비스 워커가 이전 버전 코드로 돌 수 있다.
+  // 그때 새 팝업이 없는 설정 값을 읽어 input 에 undefined 를 넣는 사고가 나므로,
+  // 팝업 쪽에서도 기본값을 한 번 더 덮어씌운다.
+  const s = { ...DEFAULT_SETTINGS, ...(state.settings || {}) };
+  const stats = { ...DEFAULT_STATS, ...(state.stats || {}) };
+  const queue = state.viewQueue || [];
   $('#autoScroll').checked = !!s.autoScroll;
   $('#highlight').checked = !!s.highlight;
   $('#autoScrollDelayMs').value = s.autoScrollDelayMs;
@@ -29,8 +37,8 @@ function renderSettings() {
   $('#enrichViews').checked = s.enrichViews !== false;
   $('#enrichMinReplies').value = s.enrichMinReplies;
   $('#enrichMinDelayMs').value = s.enrichMinDelayMs;
-  $('#enrichStats').textContent = state.viewQueue.length || state.stats.enrichTried
-    ? `확인 대기 ${state.viewQueue.length}건 · 확인 ${state.stats.enrichTried}건 중 ${state.stats.enrichFilled}건 채움`
+  $('#enrichStats').textContent = queue.length || stats.enrichTried
+    ? `확인 대기 ${queue.length}건 · 확인 ${stats.enrichTried}건 중 ${stats.enrichFilled}건 채움`
     : '';
 
   const approved = state.groups.filter((g) => g.status === 'approved');
@@ -54,7 +62,7 @@ function renderSearchTerms() {
 function renderAccounts() {
   const list = state.accounts || [];
   const counts = new Map();
-  for (const p of state.posts) if (p.account) counts.set(p.account, (counts.get(p.account) || 0) + 1);
+  for (const p of state.posts || []) if (p.account) counts.set(p.account, (counts.get(p.account) || 0) + 1);
 
   $('#accounts').innerHTML = list.length
     ? list.map((a) => `
@@ -104,7 +112,7 @@ function renderGroups() {
 function renderSuggestions() {
   const list = state.suggestions || [];
   $('#suggestDot').classList.toggle('hidden', !list.length);
-  $('#corpusInfo').textContent = `분석 대상 ${state.corpus.length}건`;
+  $('#corpusInfo').textContent = `분석 대상 ${(state.corpus || []).length}건`;
   $('#suggestions').innerHTML = list.length
     ? list.map((s) => `
       <div class="sug">
@@ -125,7 +133,7 @@ function renderSuggestions() {
 function renderResults() {
   const groupFilter = $('#filterGroup').value;
   const q = query.trim().toLowerCase();
-  const items = state.posts
+  const items = (state.posts || [])
     .filter((p) => !groupFilter || (p.groups || []).includes(groupFilter))
     .filter((p) => !q || p.text.toLowerCase().includes(q) || p.author.toLowerCase().includes(q))
     .slice()
@@ -159,10 +167,10 @@ function renderResults() {
 function renderFilterOptions() {
   const current = $('#filterGroup').value;
   const counts = new Map();
-  for (const p of state.posts) for (const g of p.groups || []) counts.set(g, (counts.get(g) || 0) + 1);
-  const all = state.accountGroup ? [...state.groups, state.accountGroup] : state.groups;
+  for (const p of state.posts || []) for (const g of p.groups || []) counts.set(g, (counts.get(g) || 0) + 1);
+  const all = state.accountGroup ? [...(state.groups || []), state.accountGroup] : (state.groups || []);
   $('#filterGroup').innerHTML =
-    `<option value="">전체 (${state.posts.length})</option>` +
+    `<option value="">전체 (${(state.posts || []).length})</option>` +
     all.map((g) => `<option value="${esc(g.id)}">${esc(g.label)} (${counts.get(g.id) || 0})</option>`).join('');
   $('#filterGroup').value = current;
 }
@@ -179,7 +187,16 @@ function renderAll() {
 }
 
 async function refresh() {
-  state = await send({ type: 'GET_STATE' });
+  // 서비스 워커가 잠들었다 깨어나는 중이면 응답이 비어서 올 수 있다.
+  // 그때는 화면을 건드리지 않고 다음 기회에 갱신한다.
+  let next;
+  try {
+    next = await send({ type: 'GET_STATE' });
+  } catch {
+    return;
+  }
+  if (!next || next.error) return;
+  state = next;
   renderAll();
 }
 
@@ -195,7 +212,11 @@ document.querySelectorAll('.tab').forEach((tab) => {
 });
 
 async function patchSettings(patch) {
-  await send({ type: 'SET_SETTINGS', settings: patch });
+  try {
+    await send({ type: 'SET_SETTINGS', settings: patch });
+  } catch {
+    return;
+  }
   await refresh();
 }
 

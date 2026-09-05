@@ -1,5 +1,6 @@
 import { formatCount, passesThreshold } from './counts.js';
 import { highlightHtml } from './matcher.js';
+import { DEFAULT_VIEW_FILTERS, DEFAULT_SETTINGS, DEFAULT_STATS } from './storage.js';
 
 const $ = (sel) => document.querySelector(sel);
 const send = (msg) => chrome.runtime.sendMessage(msg);
@@ -169,8 +170,22 @@ async function patch(part) {
 }
 
 async function load() {
-  state = await send({ type: 'GET_STATE' });
-  filters = state.viewFilters;
+  let next;
+  try {
+    next = await send({ type: 'GET_STATE' });
+  } catch {
+    return;
+  }
+  if (!next || next.error) return;
+  state = next;
+  // 확장을 새로고침하기 전이면 서비스 워커가 옛 버전일 수 있다. 기본값으로 메꾼다.
+  state.posts = state.posts || [];
+  state.groups = state.groups || [];
+  state.accounts = state.accounts || [];
+  state.viewQueue = state.viewQueue || [];
+  state.settings = { ...DEFAULT_SETTINGS, ...(state.settings || {}) };
+  state.stats = { ...DEFAULT_STATS, ...(state.stats || {}) };
+  filters = { ...DEFAULT_VIEW_FILTERS, ...(state.viewFilters || {}) };
   renderGroupOptions();
   syncInputs();
   render();

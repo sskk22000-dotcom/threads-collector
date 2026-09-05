@@ -23,8 +23,9 @@ html = html.replace(
     '<link rel="stylesheet" href="popup.css" />',
     '<link rel="stylesheet" href="popup.css" />\n  <script src="chrome-stub.js"></script>')
 html = html.replace(
-    '<script src="popup.js"></script>',
+    '<script type="module" src="popup.js"></script>',
     '<script type="module" src="background.js"></script>\n  <script type="module" src="popup.js"></script>')
+assert 'background.js' in html, 'popup.html 의 스크립트 태그가 바뀌었습니다 — serve.sh 를 고치세요'
 (d / 'harness.html').write_text(html, encoding='utf-8')
 
 # 결과 페이지도 같은 스텁 위에서 띄운다
@@ -33,6 +34,7 @@ r = r.replace('<link rel="stylesheet" href="results.css" />',
               '<link rel="stylesheet" href="results.css" />\n  <script src="chrome-stub.js"></script>')
 r = r.replace('<script type="module" src="results.js"></script>',
               '<script type="module" src="background.js"></script>\n  <script type="module" src="results.js"></script>')
+assert 'background.js' in r, 'results.html 의 스크립트 태그가 바뀌었습니다 — serve.sh 를 고치세요'
 (d / 'results_harness.html').write_text(r, encoding='utf-8')
 PY
 
