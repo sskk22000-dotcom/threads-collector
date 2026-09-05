@@ -7,7 +7,8 @@ const send = (msg) => chrome.runtime.sendMessage(msg);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-const FIELDS = ['minViews', 'minReplies', 'minLikes', 'group', 'sort', 'q', 'includeUnknown', 'onlyImages'];
+const FIELDS = ['minViews', 'minReplies', 'minLikes', 'group', 'kind', 'sort', 'q', 'includeUnknown', 'onlyImages'];
+const KIND_LABEL = { post: '글', reply: '답글', unknown: '판별 불가' };
 
 let state = null;
 let filters = null;
@@ -25,6 +26,7 @@ function applyFilters() {
     if (!passesThreshold(c.replies, Number(filters.minReplies) || 0, inc)) return false;
     if (!passesThreshold(c.likes, Number(filters.minLikes) || 0, inc)) return false;
     if (filters.group && !(p.groups || []).includes(filters.group)) return false;
+    if (filters.kind && (p.type || 'unknown') !== filters.kind) return false;
     if (filters.onlyImages && !(p.images || []).length) return false;
     if (q) {
       const hay = `${p.text} ${p.author} ${(p.keywords || []).join(' ')}`.toLowerCase();
@@ -85,6 +87,7 @@ function card(p) {
         <div class="head">
           <a class="author" href="${esc(p.authorUrl)}" target="_blank" rel="noreferrer">@${esc(p.author)}</a>
           <span class="when">${esc(when)}</span>
+          <span class="tag kind-${esc(p.type || 'unknown')}">${esc(KIND_LABEL[p.type] || '판별 불가')}</span>
           ${p.account ? '<span class="tag">레퍼런스 계정</span>' : ''}
         </div>
         <p class="text">${text}</p>
@@ -202,7 +205,7 @@ for (const key of FIELDS) {
 }
 
 $('#reset').addEventListener('click', () => patch({
-  minViews: 10000, minReplies: 20, minLikes: 0, group: '', sort: 'views', q: '',
+  minViews: 10000, minReplies: 20, minLikes: 0, group: '', kind: '', sort: 'views', q: '',
   includeUnknown: false, onlyImages: false
 }));
 

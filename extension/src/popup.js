@@ -34,6 +34,7 @@ function renderSettings() {
   $('#autoScrollDelayMs').value = s.autoScrollDelayMs;
   $('#minChars').value = s.minChars;
   $('#suggestEvery').value = s.suggestEvery;
+  $('#collectReplies').checked = s.collectReplies !== false;
   $('#enrichViews').checked = s.enrichViews !== false;
   $('#enrichMinReplies').value = s.enrichMinReplies;
   $('#enrichMinDelayMs').value = s.enrichMinDelayMs;
@@ -151,6 +152,7 @@ function renderResults() {
             </div>
             <div class="post-text">${text}</div>
             <div class="post-meta">
+              <span>${esc(p.type === 'reply' ? '답글' : p.type === 'post' ? '글' : '판별 불가')}</span>
               <span>${esc((p.groupLabels || []).join(', '))}</span>
               <span>${esc((p.keywords || []).join(', '))}</span>
               ${p.counts?.views != null ? `<span>조회 ${formatCount(p.counts.views)}</span>` : ''}
@@ -223,6 +225,7 @@ async function patchSettings(patch) {
 $('#collecting').addEventListener('change', (e) => patchSettings({ collecting: e.target.checked }));
 $('#autoScroll').addEventListener('change', (e) => patchSettings({ autoScroll: e.target.checked }));
 $('#highlight').addEventListener('change', (e) => patchSettings({ highlight: e.target.checked }));
+$('#collectReplies').addEventListener('change', (e) => patchSettings({ collectReplies: e.target.checked }));
 $('#enrichViews').addEventListener('change', (e) => patchSettings({ enrichViews: e.target.checked }));
 for (const id of ['autoScrollDelayMs', 'minChars', 'suggestEvery', 'enrichMinReplies', 'enrichMinDelayMs']) {
   $(`#${id}`).addEventListener('change', (e) => patchSettings({ [id]: Number(e.target.value) }));

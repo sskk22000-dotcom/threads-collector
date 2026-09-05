@@ -11,10 +11,16 @@
   'use strict';
 
   const POST_HREF = /^\/@([^/]+)\/post\/([A-Za-z0-9_-]+)/;
+
+  // 글 상세 페이지에서는 URL 의 글만 원글이고 나머지는 전부 답글이다.
+  // 쓰레드가 답글에도 글과 똑같은 주소 형식을 주기 때문에 이 구분이 필요하다.
+  const PAGE_POST = location.pathname.match(POST_HREF);
+  const PAGE_POST_ID = PAGE_POST ? PAGE_POST[2] : null;
+  const REPLY_MARK = /(님에게 답글|에게 보내는 답글|답글 대상|Replying to|In reply to)/;
   const UI_NOISE = [
     '답글', '좋아요', '리포스트', '공유', '번역 보기', '더 보기', '더보기',
     '팔로우', '팔로잉', '스레드', 'Translate', 'Reply', 'Repost', 'Share',
-    '님이 리포스트함', '님의 스레드', '고정됨'
+    '님이 리포스트함', '님의 스레드', '고정됨', '님에게 답글', 'Replying to'
   ];
   const RELATIVE_TIME = /^\s*\d+\s*(초|분|시간|일|주|개월|년|s|m|h|d|w)\s*$/;
 
@@ -41,6 +47,18 @@
       hops += 1;
     }
     return null;
+  }
+
+  /**
+   * 글인지 답글인지 판별한다.
+   *   - 글 상세 페이지: URL 의 글 = 원글, 나머지 = 답글 (확실)
+   *   - 그 외: "…님에게 답글" 표기가 있으면 답글 (없으면 판별 불가)
+   */
+  function detectType(container, postId) {
+    if (PAGE_POST_ID) return postId === PAGE_POST_ID ? 'post' : 'reply';
+    const head = (container.innerText || '').slice(0, 160);
+    if (REPLY_MARK.test(head)) return 'reply';
+    return 'unknown';
   }
 
   function cleanText(container, author) {
@@ -157,6 +175,9 @@
       const prev = byId.get(postId);
       if (prev && prev.container.contains(container) === false) continue;
 
+      const type = detectType(container, postId);
+      if (type === 'reply' && settings.collectReplies === false) continue;
+
       const text = cleanText(container, author);
       const isReference = accountHandles.has(author.toLowerCase());
       if (!isReference && text.length < (settings.minChars || 10)) continue;
@@ -170,6 +191,7 @@
           authorUrl: `${location.origin}/@${author}`,
           url: `${location.origin}/@${author}/post/${postId}`,
           text,
+          type,
           postedAt: timeEl ? timeEl.getAttribute('datetime') : null,
           countsRaw: readCountSources(container),
           images: readImages(container, author),

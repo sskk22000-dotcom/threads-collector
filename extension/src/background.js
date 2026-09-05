@@ -7,6 +7,7 @@ import { ACCOUNT_GROUP, findAccount, normalizeHandle, normalizeSearchTerm } from
 import { parseCount } from './counts.js';
 
 const CORPUS_MAX = 400;
+const KIND_LABEL = { post: '글', reply: '답글', unknown: '판별 불가' };
 const CUSTOM_GROUP = {
   id: 'custom',
   label: '내가 추가한 키워드',
@@ -81,6 +82,7 @@ async function handlePosts(incoming) {
 
     posts.push({
       ...post,
+      type: post.type || 'unknown',
       counts,
       images: post.images || [],
       keywords: [...new Set(hits.map((h) => h.keyword))],
@@ -141,13 +143,13 @@ function mergeSuggestions(previous, fresh) {
 /* ------------------------------------------------------------- 내보내기 */
 
 function toCsv(posts) {
-  const cols = ['collectedAt', 'postedAt', 'author', 'referenceAccount', 'url', 'groupLabels', 'keywords',
+  const cols = ['collectedAt', 'postedAt', 'kind', 'author', 'referenceAccount', 'url', 'groupLabels', 'keywords',
     'views', 'likes', 'replies', 'reposts', 'links', 'images', 'text'];
   const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const rows = [cols.join(',')];
   for (const p of posts) {
     rows.push([
-      p.collectedAt, p.postedAt, p.author, p.account || '', p.url,
+      p.collectedAt, p.postedAt, KIND_LABEL[p.type] || '판별 불가', p.author, p.account || '', p.url,
       (p.groupLabels || []).join(' | '),
       (p.keywords || []).join(' | '),
       p.counts?.views, p.counts?.likes, p.counts?.replies, p.counts?.reposts,

@@ -112,3 +112,9 @@ main { padding-top: 18px; padding-bottom: 60px; }
 .open:hover { text-decoration: underline; }
 
 .empty { text-align: center; color: var(--muted); padding: 60px 0; }
+
+.tag.kind-reply { border-color: #b8860b; color: #b8860b; }
+.tag.kind-post { border-color: var(--accent); color: var(--accent); }
+@media (prefers-color-scheme: dark) {
+  .tag.kind-reply { border-color: #d9a441; color: #d9a441; }
+}

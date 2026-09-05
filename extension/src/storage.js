@@ -24,6 +24,7 @@ export const DEFAULT_SETTINGS = {
   suggestEvery: 60,       // 스캔 N건마다 키워드 후보 재계산
   maxPosts: 5000,         // 보관 상한 (넘으면 오래된 것부터 버림)
   minChars: 10,           // 이보다 짧은 글은 무시
+  collectReplies: true,   // 답글도 수집 (구매 문의는 대부분 답글에 있다)
 
   // 조회수 보강 — 쓰레드는 피드에 조회수를 잘 안 뿌린다.
   // 댓글이 많이 달린 글만 골라 상세 페이지를 한 번 더 읽어 채운다.
@@ -47,7 +48,8 @@ export const DEFAULT_VIEW_FILTERS = {
   sort: 'views',
   q: '',
   includeUnknown: false,
-  onlyImages: false
+  onlyImages: false,
+  kind: ''                // '' 전체 / 'post' 글만 / 'reply' 답글만
 };
 
 export async function getAll() {
