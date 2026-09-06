@@ -107,6 +107,7 @@ function card(p) {
           <a class="author" href="${esc(p.authorUrl)}" target="_blank" rel="noreferrer">@${esc(p.author)}</a>
           <span class="when">${esc(when)}</span>
           <span class="tag kind-${esc(p.type || 'unknown')}">${esc(KIND_LABEL[p.type] || '판별 불가')}</span>
+          ${p.hot ? '<span class="tag hot">반응 많음</span>' : ''}
           ${p.account ? '<span class="tag">레퍼런스 계정</span>' : ''}
         </div>
         <p class="text${p.pending ? ' pending' : ''}">${p.pending ? '본문 확인 중… (원문 열기를 누르면 바로 채워집니다)' : text}</p>
@@ -121,6 +122,7 @@ function card(p) {
         ${links}
         <div class="tags">${tags}
           <a class="open" href="${esc(p.url)}" target="_blank" rel="noreferrer">원문 열기 →</a>
+          <button class="tiny hide-btn" data-hide="${esc(p.id)}">숨기기</button>
         </div>
       </div>
     </article>`;
@@ -239,6 +241,20 @@ for (const key of FIELDS) {
 
 document.querySelectorAll('.mode').forEach((btn) =>
   btn.addEventListener('click', () => patch({ mode: btn.dataset.mode })));
+
+$('#list').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-hide]');
+  if (!btn) return;
+  await send({ type: 'DELETE_POST', id: btn.dataset.hide });
+  await load();
+});
+
+$('#prune').addEventListener('click', async () => {
+  if (!confirm('지금 수집 기준에 못 미치는 글을 한 번에 지웁니다.\n구매 문의가 달린 글과 레퍼런스 계정 글은 남습니다. 계속할까요?')) return;
+  const r = await send({ type: 'PRUNE_LOW_REACH' });
+  alert(`${r.removed}건을 정리했습니다. ${r.kept}건 남음.`);
+  await load();
+});
 
 $('#reset').addEventListener('click', () => patch({
   minViews: 0, minReplies: 0, minLikes: 0, minInquiries: 1, group: '', kind: '', sort: 'views', q: '',

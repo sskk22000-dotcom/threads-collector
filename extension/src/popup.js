@@ -19,7 +19,9 @@ function renderHeader() {
   $('#collecting').checked = !!settings.collecting;
   $('#stats').textContent =
     `수집 ${posts.length}건 · 스캔 ${stats.scanned}건` +
-    (stats.skippedForeign ? ` · 외국어 제외 ${stats.skippedForeign}건` : '') +
+    (stats.skippedForeign ? ` · 외국어 ${stats.skippedForeign}` : '') +
+    (stats.skippedLowReach ? ` · 반응낮음 ${stats.skippedLowReach}` : '') +
+    (stats.skippedNoCounts ? ` · 수치없음 ${stats.skippedNoCounts}` : '') +
     (stats.lastAt ? ` · 최근 ${new Date(stats.lastAt).toLocaleTimeString('ko-KR')}` : '');
 }
 
@@ -47,6 +49,7 @@ function renderSettings() {
         : '순회할 곳이 하나뿐입니다. 아래에서 검색어를 추가하세요.')
     : '';
   $('#gateAllowUnknown').checked = s.gateAllowUnknown !== false;
+  $('#collectHotReplies').value = s.collectHotReplies;
   $('#minLikes').value = s.minLikes;
   $('#minReplies').value = s.minReplies;
   $('#gateMode').value = s.gateMode;
@@ -247,7 +250,7 @@ $('#rotateFeed').addEventListener('change', (e) => patchSettings({ rotateFeed: e
 $('#gateAllowUnknown').addEventListener('change', (e) => patchSettings({ gateAllowUnknown: e.target.checked }));
 $('#gateMode').addEventListener('change', (e) => patchSettings({ gateMode: e.target.value }));
 $('#enrichViews').addEventListener('change', (e) => patchSettings({ enrichViews: e.target.checked }));
-for (const id of ['autoScrollDelayMs', 'minChars', 'suggestEvery', 'enrichMinReplies', 'enrichMinDelayMs', 'minLikes', 'minReplies', 'rotateDwellMs']) {
+for (const id of ['autoScrollDelayMs', 'minChars', 'suggestEvery', 'enrichMinReplies', 'enrichMinDelayMs', 'minLikes', 'minReplies', 'rotateDwellMs', 'collectHotReplies']) {
   $(`#${id}`).addEventListener('change', (e) => patchSettings({ [id]: Number(e.target.value) }));
 }
 

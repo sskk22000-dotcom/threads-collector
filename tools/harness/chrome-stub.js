@@ -77,6 +77,21 @@ window.__seed = async () => {
       url: U('curious2','r4'), text: '이거 뭐예요? 브랜드 알려주세요 어디서 살 수 있나요',
       postedAt: '2026-09-03T01:00:00.000Z', countsRaw: { likes: '2' }, images: [], links: [] },
 
+    // 키워드는 없지만 댓글이 많은 글 — "일단 수집" 규칙으로 담겨야 함
+    { id: 'h1', type: 'post', parentId: null, parentUrl: null, author: 'hot_seller',
+      url: U('hot_seller','h1'), text: '명란젓 파는 사장인데 언젠가는 인정받고 싶습니다 못난이 명란 400g',
+      postedAt: '2026-09-04T01:00:00.000Z', countsRaw: { likes: '32', replies: '113', reposts: '4' }, images: [], links: [] },
+
+    // 키워드는 맞지만 반응이 거의 없는 글 — 게이트에서 탈락해야 함
+    { id: 'q1', type: 'post', parentId: null, parentUrl: null, author: 'quiet_one',
+      url: U('quiet_one','q1'), text: '이거 어디서 사요? 아무도 안 보는 글',
+      postedAt: '2026-09-04T02:00:00.000Z', countsRaw: { likes: '1', replies: '1' }, images: [], links: [] },
+
+    // 수치를 못 읽은 글 — gateAllowUnknown=false 이므로 제외돼야 함
+    { id: 'n1', type: 'post', parentId: null, parentUrl: null, author: 'no_counts',
+      url: U('no_counts','n1'), text: '구매처 어디인가요 정보 좀 부탁드려요',
+      postedAt: '2026-09-04T03:00:00.000Z', countsRaw: {}, images: [], links: [] },
+
     // 외국어 글 — 언어 필터에서 제외돼야 함
     { id: 'f1', type: 'post', parentId: null, parentUrl: null, author: 'us_seller',
       url: U('us_seller','f1'), text: 'Where can I buy this amazing kimchi stew? Please send me the link!',

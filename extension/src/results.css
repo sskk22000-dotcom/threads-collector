@@ -142,3 +142,8 @@ main { padding-top: 18px; padding-bottom: 60px; }
 .inquiry a:hover { color: var(--accent); }
 .inquiry .q { color: var(--muted); }
 .pending { color: var(--muted); font-style: italic; }
+
+button.danger { color: #d93025; }
+@media (prefers-color-scheme: dark) { button.danger { color: #ff6b5e; } }
+.hide-btn { margin-left: 8px; }
+.tag.hot { border-color: #b8860b; color: #b8860b; }

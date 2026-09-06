@@ -33,11 +33,15 @@ export const DEFAULT_SETTINGS = {
   minChars: 10,           // 이보다 짧은 글은 무시
   collectReplies: true,   // 답글도 수집 (구매 문의는 대부분 답글에 있다)
 
+  // 반응이 큰 글은 키워드가 없어도 일단 담고, 판단은 결과 화면에서 한다.
+  // 댓글이 많이 달렸다는 것 자체가 "사고 싶게 만든 글"이라는 신호다.
+  collectHotReplies: 20,  // 댓글이 이 수 이상이면 키워드와 무관하게 수집 (0 이면 끔)
+
   // 수집 기준 — 키워드가 맞아도 반응 없는 원글은 담지 않는다.
   minLikes: 100,          // 좋아요 기준 (0 이면 안 봄)
   minReplies: 20,         // 댓글 기준 (0 이면 안 봄)
   gateMode: 'or',         // 'or' 둘 중 하나만 넘으면 / 'and' 둘 다 넘어야
-  gateAllowUnknown: true, // 수치를 못 읽은 글은 일단 담는다 (조용히 사라지는 것 방지)
+  gateAllowUnknown: false,// 수치를 못 읽은 글은 담지 않는다 (건너뛴 수는 팝업에 표시)
 
   koreanOnly: true,       // 외국어 글은 수집하지 않는다
   koreanMinRatio: 0.3,    // 글자 중 한글 비중이 이보다 낮으면 외국어로 본다
@@ -52,7 +56,8 @@ export const DEFAULT_SETTINGS = {
 
 export const DEFAULT_STATS = {
   scanned: 0, matched: 0, lastAt: null, sinceSuggest: 0,
-  enrichTried: 0, enrichFilled: 0, skippedForeign: 0, parentsFound: 0
+  enrichTried: 0, enrichFilled: 0, skippedForeign: 0, parentsFound: 0,
+  skippedLowReach: 0, skippedNoCounts: 0, collectedHot: 0
 };
 
 /** 결과 페이지의 기본 필터. 사용자가 바꾸면 그대로 저장된다. */

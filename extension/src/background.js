@@ -4,7 +4,7 @@ import { KEYS, DEFAULT_SETTINGS, DEFAULT_STATS, DEFAULT_VIEW_FILTERS, getAll, se
 import { matchKeywords, snippetAround, isKorean } from './matcher.js';
 import { suggestKeywords } from './suggest.js';
 import { ACCOUNT_GROUP, findAccount, normalizeHandle, normalizeSearchTerm, searchUrl } from './accounts.js';
-import { parseCount, shouldCollect } from './counts.js';
+import { parseCount, shouldCollect, gateResult } from './counts.js';
 
 const CORPUS_MAX = 400;
 const KIND_LABEL = { post: '글', reply: '답글', unknown: '판별 불가' };
@@ -141,7 +141,13 @@ async function handlePosts(incoming) {
     }
 
     const { hits, groups } = matchKeywords(post.text, state.groups, { onlyApproved: true });
-    if (!hits.length && !isReference) continue;
+
+    // 댓글이 많이 달린 글은 키워드가 없어도 일단 담는다. 판단은 결과 화면에서.
+    const hotBar = settings.collectHotReplies || 0;
+    const repliesNow = seen.get(post.id).counts.replies;
+    const isHot = hotBar > 0 && repliesNow !== null && repliesNow >= hotBar;
+
+    if (!hits.length && !isReference && !isHot) continue;
 
     const counts = seen.get(post.id).counts;
     delete post.countsRaw;
@@ -152,6 +158,7 @@ async function handlePosts(incoming) {
     matched.push({ id: post.id, hits: displayHits });
 
     // ── 구매 문의 답글이면, 그 답글이 달린 판매자 원글에 붙인다 ──
+    let attached = false;
     if (post.type === 'reply' && hits.length && post.parentId && post.parentUrl) {
       const parent = ensureParent(posts, byId, post.parentId, post.parentUrl, seen, gate);
       if (parent && !parent.inquiries.some((q) => q.id === post.id)) {
@@ -164,8 +171,12 @@ async function handlePosts(incoming) {
           at: new Date().toISOString()
         });
       }
-      if (parent && parent.pending) parentQueue.add(parent.id);
+      if (parent) {
+        attached = true;                      // 부모에 붙였으면 따로 또 저장하지 않는다
+        if (parent.pending) parentQueue.add(parent.id);
+      }
     }
+    if (attached) continue;
 
     if (byId.has(post.id)) {
       // 자리표시자로 먼저 만들어 둔 원글을 실제 내용으로 채운다
@@ -185,15 +196,24 @@ async function handlePosts(incoming) {
       continue;
     }
 
-    // ── 수집 기준: 원글은 반응이 있어야 담는다 ──
+    // ── 수집 기준: 원글은 반응이 있어야 담는다 (반응 큰 글은 이미 통과) ──
     const isParentSide = post.type !== 'reply';
-    if (isParentSide && !isReference && !shouldCollect(counts, gate)) continue;
+    if (isParentSide && !isReference && !isHot) {
+      const verdict = gateResult(counts, gate);
+      if (verdict === 'fail') { state.stats.skippedLowReach += 1; continue; }
+      if (verdict === 'unknown' && gate.gateAllowUnknown === false) {
+        state.stats.skippedNoCounts += 1;
+        continue;
+      }
+    }
+    if (isHot && !hits.length) state.stats.collectedHot += 1;
 
     const record = {
       ...post,
       type: post.type || 'unknown',
       counts,
       images: post.images || [],
+      hot: isHot && !hits.length,
       keywords: [...new Set(hits.map((h) => h.keyword))],
       groups: account ? [...new Set([...groups, ACCOUNT_GROUP.id])] : groups,
       groupLabels: [...new Set([...hits.map((h) => h.label), ...(account ? [ACCOUNT_GROUP.label] : [])])],
@@ -571,6 +591,33 @@ const handlers = {
   },
 
   EXPORT: (msg) => exportData(msg.format, msg.groupId, msg.ids),
+
+  /** 지금 기준으로 반응이 낮은 글을 한 번에 정리한다. 기준이 바뀌었을 때 쓴다. */
+  PRUNE_LOW_REACH: async () => {
+    const { posts, settings } = await getAll();
+    const gate = {
+      minLikes: settings.minLikes,
+      minReplies: settings.minReplies,
+      gateMode: settings.gateMode,
+      gateAllowUnknown: settings.gateAllowUnknown
+    };
+    const hotBar = settings.collectHotReplies || 0;
+
+    const kept = posts.filter((p) => {
+      if ((p.inquiries || []).length) return true;          // 구매 문의가 달린 글은 남긴다
+      if (p.account) return true;                            // 레퍼런스 계정 글도 남긴다
+      if (p.pending) return true;                            // 아직 확인 중인 원글
+      if (p.type === 'reply') return false;                  // 부모 없는 답글은 버린다
+      const replies = p.counts?.replies;
+      if (hotBar > 0 && replies !== null && replies !== undefined && replies >= hotBar) return true;
+      return shouldCollect(p.counts, gate);
+    });
+
+    const removed = posts.length - kept.length;
+    await set({ [KEYS.POSTS]: kept });
+    await updateBadge(kept.filter((p) => !p.pending).length);
+    return { removed, kept: kept.length };
+  },
 
   CLEAR_POSTS: async () => {
     await set({ [KEYS.POSTS]: [], [KEYS.STATS]: { ...DEFAULT_STATS } });
