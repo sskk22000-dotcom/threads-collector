@@ -188,24 +188,42 @@ check('외부 링크는 점수를 올림', detectSeller('맛있게 만들었어�
 check('가격 표기도 신호', detectSeller('한 팩 5,900원입니다').signals.indexOf('가격표기') >= 0);
 check('신호 목록을 돌려줌', detectSeller(REAL[0]).signals.length > 0);
 
-/* ------------------------------------------------- 수집 판단 (AND) */
-OUT.push('수집 판단 — 셋 다 만족');
-var RULE = { postsOnly: true, minReplies: 20, minLikes: 100, requireSeller: true, sellerThreshold: 3 };
+/* --------------------------------------------------------- 등급 매기기 */
+OUT.push('등급 매기기');
+var RULE = { postsOnly: true, minReplies: 20, minLikes: 100, requireSeller: true, sellerThreshold: 3, minGrade: 'C' };
 var SELLER_POST = { type: 'post', text: REAL[0], links: [] };
+var DAILY_POST = { type: 'post', text: '오늘 지하철에서 찍은 사진인데 영화 한 장면 같더라', links: [] };
 
-check('셋 다 만족하면 수집', decideCollect(SELLER_POST, { replies: 87, likes: 1203 }, RULE).collect === true);
-check('댓글 부족이면 제외', decideCollect(SELLER_POST, { replies: 5, likes: 1203 }, RULE).reason === SKIP.LOW_REPLIES);
-check('좋아요 부족이면 제외', decideCollect(SELLER_POST, { replies: 87, likes: 12 }, RULE).reason === SKIP.LOW_LIKES);
-check('판매자 글 아니면 제외',
-  decideCollect({ type: 'post', text: '오늘 날씨 좋네요 산책 다녀왔습니다', links: [] }, { replies: 87, likes: 1203 }, RULE).reason === SKIP.NOT_SELLER);
-check('답글은 제외', decideCollect({ type: 'reply', text: REAL[0], links: [] }, { replies: 87, likes: 1203 }, RULE).reason === SKIP.REPLY);
-check('댓글수 모르면 제외', decideCollect(SELLER_POST, { replies: null, likes: 1203 }, RULE).reason === SKIP.NO_REPLIES);
-check('좋아요수 모르면 제외', decideCollect(SELLER_POST, { replies: 87, likes: null }, RULE).reason === SKIP.NO_LIKES);
-check('조건을 끄면 그 조건은 안 봄',
-  decideCollect(SELLER_POST, { replies: null, likes: 1203 }, { ...RULE, minReplies: 0 }).collect === true);
-check('판매자 조건을 끄면 일반 글도 통과',
-  decideCollect({ type: 'post', text: '오늘 날씨 좋네요', links: [] }, { replies: 87, likes: 1203 },
-    { ...RULE, requireSeller: false }).collect === true);
+check('셋 다 만족 = A', gradePost(SELLER_POST, { replies: 87, likes: 1203 }, RULE).grade === 'A');
+check('하나 모자람 = B', gradePost(SELLER_POST, { replies: 87, likes: 12 }, RULE).grade === 'B');
+check('하나만 만족 = C', gradePost(SELLER_POST, { replies: 3, likes: 12 }, RULE).grade === 'C');
+check('하나도 못 만족 = D', gradePost(DAILY_POST, { replies: 3, likes: 12 }, RULE).grade === 'D');
+check('좋아요·댓글만 넘긴 일상글은 B', gradePost(DAILY_POST, { replies: 150, likes: 2400 }, RULE).grade === 'B');
+check('수치를 모르면 미달로 침', gradePost(SELLER_POST, { replies: null, likes: null }, RULE).grade === 'C');
+check('어떤 조건이 모자란지 알려줌', (function () {
+  var g = gradePost(SELLER_POST, { replies: 87, likes: 12 }, RULE);
+  return g.met.replies === true && g.met.likes === false && g.met.seller === true;
+})());
+check('조건을 끄면 분모가 줄어듦', gradePost(SELLER_POST, { replies: 87, likes: 12 }, { ...RULE, minLikes: 0 }).required === 2);
+check('저장된 판별 결과를 재사용', (function () {
+  var p = { type: 'post', text: '내용 없음', links: [], seller: { score: 9, signals: ['미리계산'] } };
+  return gradePost(p, { replies: 87, likes: 1203 }, RULE).grade === 'A';
+})());
+
+OUT.push('등급 비교');
+check('A 는 A 이상', gradeAtLeast('A', 'A') === true);
+check('B 는 A 이상이 아님', gradeAtLeast('B', 'A') === false);
+check('B 는 B 이상', gradeAtLeast('B', 'B') === true);
+check('C 는 C 이상', gradeAtLeast('C', 'C') === true);
+check('D 는 C 이상이 아님', gradeAtLeast('D', 'C') === false);
+
+OUT.push('수집 판단');
+check('답글은 담지 않음', decideCollect({ type: 'reply', text: REAL[0], links: [] }, { replies: 87, likes: 1203 }, RULE).reason === SKIP_REPLY);
+check('A 등급은 담음', decideCollect(SELLER_POST, { replies: 87, likes: 1203 }, RULE).collect === true);
+check('C 바닥이면 C 도 담음', decideCollect(SELLER_POST, { replies: 3, likes: 12 }, RULE).collect === true);
+check('D 는 안 담음', decideCollect(DAILY_POST, { replies: 3, likes: 12 }, RULE).collect === false);
+check('바닥을 A 로 올리면 B 는 탈락',
+  decideCollect(SELLER_POST, { replies: 87, likes: 12 }, { ...RULE, minGrade: 'A' }).collect === false);
 
 OUT.push('');
 OUT.push('통과 ' + pass + ' / 실패 ' + fail);

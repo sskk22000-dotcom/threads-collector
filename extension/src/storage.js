@@ -39,6 +39,7 @@ export const DEFAULT_SETTINGS = {
   requireSeller: true,    // 2. 판매자가 쓴 글이어야 함
   sellerThreshold: 3,     // 판매자 판별 점수 기준 (낮출수록 느슨)
   minLikes: 100,          // 3. 좋아요 이 수 이상 (0 이면 끔)
+  minGrade: 'C',          // 이 등급 이상만 담는다 (A 셋 다 / B 하나 모자람 / C 하나만)
 
   koreanOnly: true,       // 외국어 글은 수집하지 않는다
   koreanMinRatio: 0.3,    // 글자 중 한글 비중이 이보다 낮으면 외국어로 본다
@@ -68,6 +69,7 @@ export const DEFAULT_VIEW_FILTERS = {
   includeUnknown: true,
   onlyImages: false,
   kind: '',               // '' 전체 / 'post' 글만 / 'reply' 답글만
+  grade: 'A',             // 결과 화면에서 볼 최소 등급
   mode: 'seller',         // 'seller' 판매자 글 랭킹(기본) / 'all' 수집한 글 전체
   minInquiries: 1         // 판매자 글 랭킹에서 최소 구매문의 수
 };

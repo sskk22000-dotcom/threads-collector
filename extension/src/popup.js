@@ -51,6 +51,7 @@ function renderSettings() {
   $('#requireSeller').checked = s.requireSeller !== false;
   $('#sellerThreshold').value = s.sellerThreshold;
   $('#postsOnly').checked = s.postsOnly !== false;
+  $('#minGrade').value = s.minGrade || 'C';
   const skipped = stats.skipped || {};
   const skipText = Object.entries(skipped).sort((a, b) => b[1] - a[1])
     .map(([reason, n]) => `${reason} ${n}`).join(' · ');
@@ -251,6 +252,7 @@ $('#rotate').addEventListener('change', (e) => patchSettings({ rotate: e.target.
 $('#rotateFeed').addEventListener('change', (e) => patchSettings({ rotateFeed: e.target.checked }));
 $('#requireSeller').addEventListener('change', (e) => patchSettings({ requireSeller: e.target.checked }));
 $('#postsOnly').addEventListener('change', (e) => patchSettings({ postsOnly: e.target.checked }));
+$('#minGrade').addEventListener('change', (e) => patchSettings({ minGrade: e.target.value }));
 $('#enrichViews').addEventListener('change', (e) => patchSettings({ enrichViews: e.target.checked }));
 for (const id of ['autoScrollDelayMs', 'minChars', 'suggestEvery', 'enrichMinReplies', 'enrichMinDelayMs', 'minLikes', 'minReplies', 'rotateDwellMs', 'sellerThreshold']) {
   $(`#${id}`).addEventListener('change', (e) => patchSettings({ [id]: Number(e.target.value) }));

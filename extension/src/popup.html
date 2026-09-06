@@ -63,6 +63,15 @@
       </label>
       <label class="row">③ 좋아요 <input type="number" id="minLikes" min="0" step="10" class="num" /> 개 이상</label>
       <label class="row"><input type="checkbox" id="postsOnly" /> 원글만 수집</label>
+      <label class="row">담을 최소 등급
+        <select id="minGrade">
+          <option value="A">A만 (셋 다 만족)</option>
+          <option value="B">B 이상 (하나 모자람까지)</option>
+          <option value="C">C 이상 (하나라도 만족하면)</option>
+        </select>
+      </label>
+      <p class="hint">등급은 저장하지 않고 <b>볼 때마다 다시 계산</b>합니다.
+        위 숫자를 바꾸면 이미 모아둔 글도 그 자리에서 다시 매겨집니다.</p>
       <div class="stats" id="skipStats"></div>
 
       <div class="sep"></div>

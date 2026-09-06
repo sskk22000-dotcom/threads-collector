@@ -196,13 +196,14 @@ async function handlePosts(incoming) {
     }
 
     if (!decision.collect) { bump(decision.reason); continue; }
+    bump(`수집 ${decision.grade}등급`);
 
     const record = {
       ...post,
       type: post.type || 'unknown',
       counts,
       images: post.images || [],
-      seller: decision.seller || null,
+      seller: decision.seller || null,   // 등급은 볼 때 계산하므로 저장하지 않는다
       keywords: [...new Set(hits.map((h) => h.keyword))],
       groups: account ? [...new Set([...groups, ACCOUNT_GROUP.id])] : groups,
       groupLabels: [...new Set([...hits.map((h) => h.label), ...(account ? [ACCOUNT_GROUP.label] : [])])],

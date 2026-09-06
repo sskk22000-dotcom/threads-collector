@@ -1,13 +1,14 @@
 import { formatCount, passesThreshold } from './counts.js';
 import { highlightHtml } from './matcher.js';
 import { DEFAULT_VIEW_FILTERS, DEFAULT_SETTINGS, DEFAULT_STATS } from './storage.js';
+import { gradePost, gradeAtLeast } from './rules.js';
 
 const $ = (sel) => document.querySelector(sel);
 const send = (msg) => chrome.runtime.sendMessage(msg);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-const FIELDS = ['minViews', 'minReplies', 'minLikes', 'minInquiries', 'group', 'kind', 'sort', 'q', 'includeUnknown', 'onlyImages'];
+const FIELDS = ['minViews', 'minReplies', 'minLikes', 'minInquiries', 'group', 'kind', 'grade', 'sort', 'q', 'includeUnknown', 'onlyImages'];
 const KIND_LABEL = { post: '글', reply: '답글', unknown: '판별 불가' };
 
 let state = null;
@@ -17,6 +18,9 @@ let visible = [];
 /* ------------------------------------------------------------------ 필터 */
 
 function applyFilters() {
+  // 등급은 저장돼 있지 않다. 지금 기준으로 매번 다시 매긴다.
+  for (const p of state.posts) p._g = gradePost(p, p.counts || {}, state.settings);
+
   const q = (filters.q || '').trim().toLowerCase();
   const inc = filters.includeUnknown;
   const sellerMode = filters.mode !== 'all';
@@ -32,6 +36,7 @@ function applyFilters() {
     if (!passesThreshold(c.likes, Number(filters.minLikes) || 0, inc)) return false;
     if (filters.group && !(p.groups || []).includes(filters.group)) return false;
     if (!sellerMode && filters.kind && (p.type || 'unknown') !== filters.kind) return false;
+    if (!p.pending && !gradeAtLeast(p._g.grade, filters.grade || 'A')) return false;
     if (filters.onlyImages && !(p.images || []).length) return false;
     if (q) {
       const inquiryText = (p.inquiries || []).map((i) => i.text).join(' ');
@@ -61,6 +66,14 @@ function metric(label, value) {
   return `<span class="metric ${known ? '' : 'unknown'}">
     <span class="label">${label}</span><span class="value">${formatCount(value)}</span>
   </span>`;
+}
+
+/** 어떤 조건을 만족했고 뭐가 모자랐는지 한 줄로 */
+function metLine(g) {
+  const label = { replies: '댓글', likes: '좋아요', seller: '판매자 글' };
+  const parts = Object.keys(g.met).map((k) =>
+    g.met[k] ? `<b>${label[k]}</b>` : `<span class="no">${label[k]}</span>`);
+  return `<span class="met">${parts.join(' · ')}</span>`;
 }
 
 function card(p) {
@@ -106,8 +119,9 @@ function card(p) {
         <div class="head">
           <a class="author" href="${esc(p.authorUrl)}" target="_blank" rel="noreferrer">@${esc(p.author)}</a>
           <span class="when">${esc(when)}</span>
+          ${p._g ? `<span class="grade grade-${esc(p._g.grade)}" title="${esc(p._g.score)}/${esc(p._g.required)} 조건 만족">${esc(p._g.grade)}</span>` : ''}
           <span class="tag kind-${esc(p.type || 'unknown')}">${esc(KIND_LABEL[p.type] || '판별 불가')}</span>
-          ${p.seller ? `<span class="tag hot" title="${esc((p.seller.signals || []).join(', '))}">판매자 글 ${p.seller.score}점</span>` : ''}
+          ${p._g ? metLine(p._g) : ''}
           ${p.account ? '<span class="tag">레퍼런스 계정</span>' : ''}
         </div>
         <p class="text${p.pending ? ' pending' : ''}">${p.pending ? '본문 확인 중… (원문 열기를 누르면 바로 채워집니다)' : text}</p>
@@ -161,13 +175,15 @@ function render() {
   document.querySelectorAll('.seller-only').forEach((el) => el.classList.toggle('hidden', !sellerMode));
   document.querySelectorAll('.all-only').forEach((el) => el.classList.toggle('hidden', sellerMode));
 
+  const dist = { A: 0, B: 0, C: 0, D: 0 };
+  for (const p of state.posts) if (p._g) dist[p._g.grade] += 1;
   const sellers = state.posts.filter((p) => (p.inquiries || []).length);
   const totalInquiries = sellers.reduce((n, p) => n + p.inquiries.length, 0);
   $('#summary').textContent = sellerMode
     ? `구매 문의가 달린 판매자 글 ${sellers.length}건 (문의 ${totalInquiries}건) 중 ${visible.length}건 표시 · ` +
       `본문 확인 대기 ${state.parentQueue.length}건`
     : `수집한 글 ${state.posts.length}건 중 ${visible.length}건 표시 · ` +
-      `조회수 확인된 글 ${state.posts.filter((p) => p.counts?.views != null).length}건`;
+      `A ${dist.A} · B ${dist.B} · C ${dist.C}`;
 
   $('#list').innerHTML = (sellerMode ? '' : renderNotice()) + (visible.length
     ? visible.map(card).join('')
@@ -257,7 +273,7 @@ $('#prune').addEventListener('click', async () => {
 });
 
 $('#reset').addEventListener('click', () => patch({
-  minViews: 0, minReplies: 0, minLikes: 0, minInquiries: 1, group: '', kind: '', sort: 'views', q: '',
+  minViews: 0, minReplies: 0, minLikes: 0, minInquiries: 1, group: '', kind: '', grade: 'A', sort: 'views', q: '',
   includeUnknown: true, onlyImages: false
 }));
 
