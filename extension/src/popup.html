@@ -53,21 +53,17 @@
         <span class="muted">(외국어 글 제외)</span></label>
 
       <div class="sep"></div>
-      <p class="hint">수집 기준 — 키워드가 맞아도 <b>반응이 없는 원글은 담지 않습니다.</b>
-        답글(구매 문의)은 이 기준과 무관하게 원글을 찾는 단서로 씁니다.</p>
-      <label class="row">댓글 <input type="number" id="collectHotReplies" min="0" step="5" class="num" /> 개 이상이면
-        <b>키워드 없어도 수집</b></label>
-      <p class="hint">반응이 큰 글은 일단 담고 결과 화면에서 판단합니다. 0 이면 끕니다.</p>
-      <label class="row">좋아요 <input type="number" id="minLikes" min="0" step="10" class="num" /> 이상</label>
-      <label class="row">댓글 <input type="number" id="minReplies" min="0" step="5" class="num" /> 이상</label>
-      <label class="row">조건
-        <select id="gateMode">
-          <option value="or">둘 중 하나만 넘으면</option>
-          <option value="and">둘 다 넘어야</option>
-        </select>
+      <p class="hint"><b>수집 조건</b> — 전부 <b>원글 기준</b>이고, <b>셋 다 만족해야</b> 담습니다.
+        답글은 담지 않고 판매자 글을 찾는 단서로만 씁니다.</p>
+      <label class="row">① 댓글 <input type="number" id="minReplies" min="0" step="5" class="num" /> 개 이상</label>
+      <label class="row">② <input type="checkbox" id="requireSeller" /> 판매자가 쓴 글</label>
+      <label class="row">판별 기준 점수
+        <input type="number" id="sellerThreshold" min="1" max="10" class="num" />
+        <span class="muted">낮출수록 느슨</span>
       </label>
-      <label class="row"><input type="checkbox" id="gateAllowUnknown" /> 수치를 못 읽은 글은 일단 담기</label>
-      <label class="row">추천 재계산 주기 <input type="number" id="suggestEvery" min="10" step="10" class="num" /> 건</label>
+      <label class="row">③ 좋아요 <input type="number" id="minLikes" min="0" step="10" class="num" /> 개 이상</label>
+      <label class="row"><input type="checkbox" id="postsOnly" /> 원글만 수집</label>
+      <div class="stats" id="skipStats"></div>
 
       <div class="sep"></div>
       <p class="hint">쓰레드는 피드에 조회수를 잘 안 보여줍니다. 댓글이 많이 달린 글만 골라

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "쓰레드 레퍼런스 수집기",
-  "version": "2.2.0",
+  "version": "3.0.0",
   "description": "구매 문의 댓글이 달린 쓰레드 판매자 글을 찾아 모으는 레퍼런스 수집기.",
   "permissions": [
     "storage",

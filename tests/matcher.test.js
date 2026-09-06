@@ -166,6 +166,47 @@ check('한글 섞인 영어는 비중으로 판단', isKorean('Threads 마케팅
 check('글자가 거의 없으면 거르지 않음', isKorean('🔥🔥 !!') === true && isKorean('') === true);
 check('한글 비중 계산', Math.round(koreanRatio('한글abc') * 100) === 40);
 
+/* ------------------------------------------------ 판매자 글 판별 */
+OUT.push('판매자 글 판별');
+var REAL = [
+  '껍데기 파는 사장인데 솔직하게 주문이 없습니다..! 돼지껍데기 1팩 5,900원인데 지나가다 하트라도 부탁합니다',
+  '칼국수 파는 사장입니다 제대로 된 생면 칼국수 무료배송에 1인분 1,400원인데 지나가다 하트 꾹 눌러주세요',
+  '명란젓 파는 사장인데 언젠가는 인정받고 싶습니다 못난이 명란 400g 9,900원',
+  '치니들 나는 김치찌개를 판매하는 사장이야 항상 정성담아 만들고 있으니 믿고 주문해줘',
+  '재고 없어서 11일 출고인데 지금 주문해도 11일에 나갑니다 수입 뼈 0%'
+];
+check('실제 판매자 글 5건 모두 판별', REAL.every(function (t) { return detectSeller(t).isSeller; }));
+
+var NOT_SELLER = [
+  '오늘 날씨가 참 좋네요 산책 다녀왔습니다',
+  '이 청국장 어디서 사요? 너무 맛있어 보여요 링크 좀요',
+  '아들이랑 껴안고 울었어 진짜 고맙습니다 다 여러분 덕이에요',
+  '오늘 9시경 용산에서 노량진 오는 지하철 안에서 찍은건데 영화의 한 장면 같더라'
+];
+check('판매자 글 아닌 것은 걸러냄', NOT_SELLER.every(function (t) { return !detectSeller(t).isSeller; }));
+check('외부 링크는 점수를 올림', detectSeller('맛있게 만들었어요', { links: ['https://smartstore.naver.com/x'] }).score >= 2);
+check('가격 표기도 신호', detectSeller('한 팩 5,900원입니다').signals.indexOf('가격표기') >= 0);
+check('신호 목록을 돌려줌', detectSeller(REAL[0]).signals.length > 0);
+
+/* ------------------------------------------------- 수집 판단 (AND) */
+OUT.push('수집 판단 — 셋 다 만족');
+var RULE = { postsOnly: true, minReplies: 20, minLikes: 100, requireSeller: true, sellerThreshold: 3 };
+var SELLER_POST = { type: 'post', text: REAL[0], links: [] };
+
+check('셋 다 만족하면 수집', decideCollect(SELLER_POST, { replies: 87, likes: 1203 }, RULE).collect === true);
+check('댓글 부족이면 제외', decideCollect(SELLER_POST, { replies: 5, likes: 1203 }, RULE).reason === SKIP.LOW_REPLIES);
+check('좋아요 부족이면 제외', decideCollect(SELLER_POST, { replies: 87, likes: 12 }, RULE).reason === SKIP.LOW_LIKES);
+check('판매자 글 아니면 제외',
+  decideCollect({ type: 'post', text: '오늘 날씨 좋네요 산책 다녀왔습니다', links: [] }, { replies: 87, likes: 1203 }, RULE).reason === SKIP.NOT_SELLER);
+check('답글은 제외', decideCollect({ type: 'reply', text: REAL[0], links: [] }, { replies: 87, likes: 1203 }, RULE).reason === SKIP.REPLY);
+check('댓글수 모르면 제외', decideCollect(SELLER_POST, { replies: null, likes: 1203 }, RULE).reason === SKIP.NO_REPLIES);
+check('좋아요수 모르면 제외', decideCollect(SELLER_POST, { replies: 87, likes: null }, RULE).reason === SKIP.NO_LIKES);
+check('조건을 끄면 그 조건은 안 봄',
+  decideCollect(SELLER_POST, { replies: null, likes: 1203 }, { ...RULE, minReplies: 0 }).collect === true);
+check('판매자 조건을 끄면 일반 글도 통과',
+  decideCollect({ type: 'post', text: '오늘 날씨 좋네요', links: [] }, { replies: 87, likes: 1203 },
+    { ...RULE, requireSeller: false }).collect === true);
+
 OUT.push('');
 OUT.push('통과 ' + pass + ' / 실패 ' + fail);
 

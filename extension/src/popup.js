@@ -20,8 +20,6 @@ function renderHeader() {
   $('#stats').textContent =
     `수집 ${posts.length}건 · 스캔 ${stats.scanned}건` +
     (stats.skippedForeign ? ` · 외국어 ${stats.skippedForeign}` : '') +
-    (stats.skippedLowReach ? ` · 반응낮음 ${stats.skippedLowReach}` : '') +
-    (stats.skippedNoCounts ? ` · 수치없음 ${stats.skippedNoCounts}` : '') +
     (stats.lastAt ? ` · 최근 ${new Date(stats.lastAt).toLocaleTimeString('ko-KR')}` : '');
 }
 
@@ -48,11 +46,15 @@ function renderSettings() {
         ? `순회 대상 ${sourceCount}곳 · 지금 ${(state.rotation && state.rotation.index + 1) || 1}번째`
         : '순회할 곳이 하나뿐입니다. 아래에서 검색어를 추가하세요.')
     : '';
-  $('#gateAllowUnknown').checked = s.gateAllowUnknown !== false;
-  $('#collectHotReplies').value = s.collectHotReplies;
-  $('#minLikes').value = s.minLikes;
   $('#minReplies').value = s.minReplies;
-  $('#gateMode').value = s.gateMode;
+  $('#minLikes').value = s.minLikes;
+  $('#requireSeller').checked = s.requireSeller !== false;
+  $('#sellerThreshold').value = s.sellerThreshold;
+  $('#postsOnly').checked = s.postsOnly !== false;
+  const skipped = stats.skipped || {};
+  const skipText = Object.entries(skipped).sort((a, b) => b[1] - a[1])
+    .map(([reason, n]) => `${reason} ${n}`).join(' · ');
+  $('#skipStats').textContent = skipText ? `건너뜀 — ${skipText}` : '';
   $('#enrichViews').checked = s.enrichViews !== false;
   $('#enrichMinReplies').value = s.enrichMinReplies;
   $('#enrichMinDelayMs').value = s.enrichMinDelayMs;
@@ -247,10 +249,10 @@ $('#collectReplies').addEventListener('change', (e) => patchSettings({ collectRe
 $('#koreanOnly').addEventListener('change', (e) => patchSettings({ koreanOnly: e.target.checked }));
 $('#rotate').addEventListener('change', (e) => patchSettings({ rotate: e.target.checked }));
 $('#rotateFeed').addEventListener('change', (e) => patchSettings({ rotateFeed: e.target.checked }));
-$('#gateAllowUnknown').addEventListener('change', (e) => patchSettings({ gateAllowUnknown: e.target.checked }));
-$('#gateMode').addEventListener('change', (e) => patchSettings({ gateMode: e.target.value }));
+$('#requireSeller').addEventListener('change', (e) => patchSettings({ requireSeller: e.target.checked }));
+$('#postsOnly').addEventListener('change', (e) => patchSettings({ postsOnly: e.target.checked }));
 $('#enrichViews').addEventListener('change', (e) => patchSettings({ enrichViews: e.target.checked }));
-for (const id of ['autoScrollDelayMs', 'minChars', 'suggestEvery', 'enrichMinReplies', 'enrichMinDelayMs', 'minLikes', 'minReplies', 'rotateDwellMs', 'collectHotReplies']) {
+for (const id of ['autoScrollDelayMs', 'minChars', 'suggestEvery', 'enrichMinReplies', 'enrichMinDelayMs', 'minLikes', 'minReplies', 'rotateDwellMs', 'sellerThreshold']) {
   $(`#${id}`).addEventListener('change', (e) => patchSettings({ [id]: Number(e.target.value) }));
 }
 

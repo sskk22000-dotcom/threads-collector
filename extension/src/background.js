@@ -4,7 +4,8 @@ import { KEYS, DEFAULT_SETTINGS, DEFAULT_STATS, DEFAULT_VIEW_FILTERS, getAll, se
 import { matchKeywords, snippetAround, isKorean } from './matcher.js';
 import { suggestKeywords } from './suggest.js';
 import { ACCOUNT_GROUP, findAccount, normalizeHandle, normalizeSearchTerm, searchUrl } from './accounts.js';
-import { parseCount, shouldCollect, gateResult } from './counts.js';
+import { parseCount, shouldCollect } from './counts.js';
+import { decideCollect } from './rules.js';
 
 const CORPUS_MAX = 400;
 const KIND_LABEL = { post: '글', reply: '답글', unknown: '판별 불가' };
@@ -43,15 +44,15 @@ function ensureCustomGroup(groups) {
  * 절대 저장되지 않는다. 대신 같은 화면에서 함께 본 글(seen)이 있으면 그 내용으로
  * 바로 채우고, 없으면 본문을 나중에 확인할 자리표시자를 만든다.
  */
-function ensureParent(posts, byId, parentId, parentUrl, seen, gate) {
+function ensureParent(posts, byId, parentId, parentUrl, seen, settings) {
   const existing = byId.get(parentId);
   if (existing) return existing;
 
   const fresh = seen.get(parentId);
   const handle = (String(parentUrl || '').match(/\/@([^/]+)\/post\//) || [])[1] || '';
 
-  // 화면에서 같이 본 원글이면 수집 기준을 바로 적용한다
-  if (fresh && !shouldCollect(fresh.counts, gate)) return null;
+  // 화면에서 같이 본 원글이면 수집 조건을 바로 적용한다
+  if (fresh && !decideCollect(fresh.post, fresh.counts, settings).collect) return null;
 
   const parent = fresh
     ? {
@@ -97,11 +98,9 @@ async function handlePosts(incoming) {
   if (!state.settings.collecting) return { matched: [] };
 
   const settings = state.settings;
-  const gate = {
-    minLikes: settings.minLikes,
-    minReplies: settings.minReplies,
-    gateMode: settings.gateMode,
-    gateAllowUnknown: settings.gateAllowUnknown
+  const bump = (reason) => {
+    state.stats.skipped = state.stats.skipped || {};
+    state.stats.skipped[reason] = (state.stats.skipped[reason] || 0) + 1;
   };
 
   let posts = state.posts;
@@ -142,25 +141,25 @@ async function handlePosts(incoming) {
 
     const { hits, groups } = matchKeywords(post.text, state.groups, { onlyApproved: true });
 
-    // 댓글이 많이 달린 글은 키워드가 없어도 일단 담는다. 판단은 결과 화면에서.
-    const hotBar = settings.collectHotReplies || 0;
-    const repliesNow = seen.get(post.id).counts.replies;
-    const isHot = hotBar > 0 && repliesNow !== null && repliesNow >= hotBar;
-
-    if (!hits.length && !isReference && !isHot) continue;
-
     const counts = seen.get(post.id).counts;
     delete post.countsRaw;
 
-    const displayHits = hits.length
-      ? hits
-      : [{ group: ACCOUNT_GROUP.id, label: ACCOUNT_GROUP.label, keyword: `@${normalizeHandle(post.author)}` }];
-    matched.push({ id: post.id, hits: displayHits });
+    // 원글 수집 판단 — 댓글 · 판매자 글 · 좋아요 세 조건을 모두 만족해야 담는다
+    const decision = isReference
+      ? { collect: true }
+      : decideCollect(post, counts, settings);
+
+    if (hits.length || decision.collect) {
+      const displayHits = hits.length
+        ? hits
+        : [{ group: 'seller_post', label: '판매자 글', keyword: `점수 ${decision.seller ? decision.seller.score : '-'}` }];
+      matched.push({ id: post.id, hits: displayHits });
+    }
 
     // ── 구매 문의 답글이면, 그 답글이 달린 판매자 원글에 붙인다 ──
     let attached = false;
     if (post.type === 'reply' && hits.length && post.parentId && post.parentUrl) {
-      const parent = ensureParent(posts, byId, post.parentId, post.parentUrl, seen, gate);
+      const parent = ensureParent(posts, byId, post.parentId, post.parentUrl, seen, settings);
       if (parent && !parent.inquiries.some((q) => q.id === post.id)) {
         parent.inquiries.push({
           id: post.id,
@@ -196,24 +195,14 @@ async function handlePosts(incoming) {
       continue;
     }
 
-    // ── 수집 기준: 원글은 반응이 있어야 담는다 (반응 큰 글은 이미 통과) ──
-    const isParentSide = post.type !== 'reply';
-    if (isParentSide && !isReference && !isHot) {
-      const verdict = gateResult(counts, gate);
-      if (verdict === 'fail') { state.stats.skippedLowReach += 1; continue; }
-      if (verdict === 'unknown' && gate.gateAllowUnknown === false) {
-        state.stats.skippedNoCounts += 1;
-        continue;
-      }
-    }
-    if (isHot && !hits.length) state.stats.collectedHot += 1;
+    if (!decision.collect) { bump(decision.reason); continue; }
 
     const record = {
       ...post,
       type: post.type || 'unknown',
       counts,
       images: post.images || [],
-      hot: isHot && !hits.length,
+      seller: decision.seller || null,
       keywords: [...new Set(hits.map((h) => h.keyword))],
       groups: account ? [...new Set([...groups, ACCOUNT_GROUP.id])] : groups,
       groupLabels: [...new Set([...hits.map((h) => h.label), ...(account ? [ACCOUNT_GROUP.label] : [])])],
@@ -595,22 +584,11 @@ const handlers = {
   /** 지금 기준으로 반응이 낮은 글을 한 번에 정리한다. 기준이 바뀌었을 때 쓴다. */
   PRUNE_LOW_REACH: async () => {
     const { posts, settings } = await getAll();
-    const gate = {
-      minLikes: settings.minLikes,
-      minReplies: settings.minReplies,
-      gateMode: settings.gateMode,
-      gateAllowUnknown: settings.gateAllowUnknown
-    };
-    const hotBar = settings.collectHotReplies || 0;
 
     const kept = posts.filter((p) => {
-      if ((p.inquiries || []).length) return true;          // 구매 문의가 달린 글은 남긴다
-      if (p.account) return true;                            // 레퍼런스 계정 글도 남긴다
-      if (p.pending) return true;                            // 아직 확인 중인 원글
-      if (p.type === 'reply') return false;                  // 부모 없는 답글은 버린다
-      const replies = p.counts?.replies;
-      if (hotBar > 0 && replies !== null && replies !== undefined && replies >= hotBar) return true;
-      return shouldCollect(p.counts, gate);
+      if (p.account) return true;                            // 레퍼런스 계정 글은 남긴다
+      if (p.pending) return true;                            // 아직 본문 확인 중인 원글
+      return decideCollect(p, p.counts || {}, settings).collect;
     });
 
     const removed = posts.length - kept.length;

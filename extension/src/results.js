@@ -107,7 +107,7 @@ function card(p) {
           <a class="author" href="${esc(p.authorUrl)}" target="_blank" rel="noreferrer">@${esc(p.author)}</a>
           <span class="when">${esc(when)}</span>
           <span class="tag kind-${esc(p.type || 'unknown')}">${esc(KIND_LABEL[p.type] || '판별 불가')}</span>
-          ${p.hot ? '<span class="tag hot">반응 많음</span>' : ''}
+          ${p.seller ? `<span class="tag hot" title="${esc((p.seller.signals || []).join(', '))}">판매자 글 ${p.seller.score}점</span>` : ''}
           ${p.account ? '<span class="tag">레퍼런스 계정</span>' : ''}
         </div>
         <p class="text${p.pending ? ' pending' : ''}">${p.pending ? '본문 확인 중… (원문 열기를 누르면 바로 채워집니다)' : text}</p>
