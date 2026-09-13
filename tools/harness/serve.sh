@@ -36,6 +36,28 @@ r = r.replace('<script type="module" src="results.js"></script>',
               '<script type="module" src="background.js"></script>\n  <script type="module" src="results.js"></script>')
 assert 'background.js' in r, 'results.html 의 스크립트 태그가 바뀌었습니다 — serve.sh 를 고치세요'
 (d / 'results_harness.html').write_text(r, encoding='utf-8')
+
+# 콘텐츠 스크립트(자동 스크롤 · 정지 조건)를 확인하는 하네스
+(d / 'content_harness.html').write_text('''<!doctype html>
+<meta charset="utf-8"><title>content.js 하네스</title>
+<style>body{font:14px/1.6 system-ui;margin:0}#feed div{height:600px;border-bottom:1px solid #ccc;padding:20px}</style>
+<h3 style="position:fixed;top:0;background:#fff;width:100%;margin:0;padding:8px">스크롤 횟수: <b id="n">0</b></h3>
+<div id="feed"></div>
+<script src="chrome-stub.js"></script>
+<script>
+  for (let i = 0; i < 40; i++) {
+    const d = document.createElement('div');
+    d.innerHTML = '<a href="/@seller' + i + '/post/p' + i + '">글 ' + i + '</a>'
+      + '<time datetime="2026-09-01T00:00:00Z">1시간</time>'
+      + '<p>명란젓 파는 사장인데 무료배송 9,900원 지나가다 하트라도 부탁합니다</p>';
+    document.getElementById('feed').appendChild(d);
+  }
+  window.__scrolls = 0;
+  const realScrollBy = window.scrollBy.bind(window);
+  window.scrollBy = (opts) => { window.__scrolls++; document.getElementById('n').textContent = window.__scrolls; realScrollBy(opts); };
+</script>
+<script src="content.js"></script>
+''', encoding='utf-8')
 PY
 
 echo "팝업:   http://localhost:$port/harness.html"

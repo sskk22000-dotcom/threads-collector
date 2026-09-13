@@ -34,6 +34,61 @@
   let rotateTimer = null;
   let enrichedThisRun = 0;
   let countsModule = null;
+  let routeTimer = null;
+  let syncTimer = null;
+  let stopped = false;
+  let observer = null;
+
+  /* ------------------------------------------------------------ 생존 확인 */
+
+  /**
+   * 확장이 새로 로드되면 이미 주입된 이 스크립트는 확장과 끊긴다(고아 상태).
+   * 그 상태에서는 "수집 꺼짐" 알림을 받을 수 없어서, 놔두면 페이지가 혼자
+   * 계속 스크롤된다. 그래서 매 동작 전에 연결이 살아 있는지 확인한다.
+   */
+  function contextAlive() {
+    try {
+      return Boolean(chrome.runtime && chrome.runtime.id);
+    } catch {
+      return false;
+    }
+  }
+
+  /** 모든 자동 동작을 멈추고 표시도 걷어낸다. 탭을 새로고침하면 다시 시작된다. */
+  function shutdown(reason) {
+    if (stopped) return;
+    stopped = true;
+    settings.collecting = false;
+    clearTimeout(scanTimer);
+    clearTimeout(scrollTimer);
+    clearTimeout(enrichTimer);
+    clearTimeout(rotateTimer);
+    clearInterval(routeTimer);
+    clearInterval(syncTimer);
+    if (observer) observer.disconnect();
+    clearMarks();
+    console.info('[쓰레드 레퍼런스 수집기] 자동 동작 중단:', reason, '— 탭을 새로고침하면 다시 시작합니다.');
+  }
+
+  /**
+   * 안전망. 설정 변경 알림을 못 받는 상황을 대비해 주기적으로 직접 확인한다.
+   * 알림에만 기대면 연결이 끊겼을 때 영원히 모른다.
+   */
+  async function syncGuard() {
+    if (!contextAlive()) return shutdown('확장이 새로 로드됨');
+    try {
+      const raw = await chrome.storage.local.get('settings');
+      const next = raw.settings || {};
+      if (settings.collecting && next.collecting === false) {
+        settings = { ...settings, ...next };
+        clearTimeout(scrollTimer);
+        clearTimeout(enrichTimer);
+        clearTimeout(rotateTimer);
+      }
+    } catch {
+      shutdown('저장소에 접근할 수 없음');
+    }
+  }
 
   /* ---------------------------------------------------------------- 추출 */
 
@@ -257,7 +312,8 @@
   /* ---------------------------------------------------------------- 루프 */
 
   async function scan() {
-    if (!settings.collecting) return;
+    if (!contextAlive()) return shutdown('확장이 새로 로드됨');
+    if (stopped || !settings.collecting) return;
     const found = extractVisiblePosts();
     if (!found.size) return;
 
@@ -301,7 +357,8 @@
   }
 
   function humanScrollStep() {
-    if (!settings.collecting || !settings.autoScroll) return;
+    if (!contextAlive()) return shutdown('확장이 새로 로드됨');
+    if (stopped || !settings.collecting || !settings.autoScroll) return;
 
     // 가끔은 살짝 위로 되돌아간다 (놓친 글을 다시 보는 사람의 동작)
     const back = Math.random() < 0.08;
@@ -315,7 +372,7 @@
 
   function applyAutoScroll() {
     clearTimeout(scrollTimer);
-    if (!settings.collecting || !settings.autoScroll) return;
+    if (stopped || !settings.collecting || !settings.autoScroll) return;
     scrollTimer = setTimeout(humanScrollStep, nextScrollDelay());
   }
 
@@ -339,7 +396,8 @@
    * 추천 피드 → 검색어1 → 검색어2 → … → 다시 추천 피드.
    */
   async function rotateStep() {
-    if (!settings.collecting || !settings.rotate) return;
+    if (!contextAlive()) return shutdown('확장이 새로 로드됨');
+    if (stopped || !settings.collecting || !settings.rotate) return;
 
     if (userIsBusy()) {                       // 입력 중이면 미루고 다시 기다린다
       rotateTimer = setTimeout(rotateStep, 15000);
@@ -384,7 +442,8 @@
    * 페이지와 같은 출처로 한 번에 하나씩만, 간격도 매번 다르게 요청한다.
    */
   async function enrichStep() {
-    if (!settings.collecting) return;
+    if (!contextAlive()) return shutdown('확장이 새로 로드됨');
+    if (stopped || !settings.collecting) return;
     if (enrichedThisRun >= (settings.enrichMaxPerRun || 40)) return;
 
     let res;
@@ -456,13 +515,13 @@
     if (changes.groups || changes.accounts) sentIds.clear();   // 기준이 바뀌면 화면의 글을 다시 판정
   });
 
-  const observer = new MutationObserver(() => scheduleScan());
+  observer = new MutationObserver(() => scheduleScan());
   observer.observe(document.documentElement, { childList: true, subtree: true });
   window.addEventListener('scroll', () => scheduleScan(600), { passive: true });
 
   // SPA 라우팅 감지
   let lastPath = location.pathname + location.search;
-  setInterval(() => {
+  routeTimer = setInterval(() => {
     const now = location.pathname + location.search;
     if (now !== lastPath) {
       lastPath = now;
@@ -471,5 +530,6 @@
     }
   }, 1000);
 
+  syncTimer = setInterval(syncGuard, 20000);
   loadSettings();
 })();

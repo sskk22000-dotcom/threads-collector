@@ -5,6 +5,7 @@ window.__log = [];
 
 window.chrome = {
   runtime: {
+    id: 'harness-extension-id',   // 확장이 살아 있음을 나타낸다
     onInstalled: { addListener: (fn) => fn() },
     onMessage: { addListener: (fn) => listeners.message.push(fn) },
     sendMessage: (msg) => new Promise((resolve) => {
@@ -40,6 +41,9 @@ window.chrome = {
     create: (o) => window.__log.push('tab:' + o.url)
   }
 };
+
+// 확장이 새로 로드돼 이 스크립트가 끊긴 상황을 흉내낸다.
+window.__orphan = () => { delete window.chrome.runtime.id; };
 
 // 수집 상태를 켜고 가짜 글을 흘려보내 background 파이프라인 전체를 태운다.
 window.__seed = async () => {
