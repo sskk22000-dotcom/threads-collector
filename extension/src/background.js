@@ -3,9 +3,9 @@
 import { KEYS, DEFAULT_SETTINGS, DEFAULT_STATS, DEFAULT_VIEW_FILTERS, getAll, set, ensureSeeded } from './storage.js';
 import { matchKeywords, snippetAround, isKorean } from './matcher.js';
 import { suggestKeywords } from './suggest.js';
-import { ACCOUNT_GROUP, findAccount, normalizeHandle, normalizeSearchTerm, searchUrl } from './accounts.js';
+import { ACCOUNT_GROUP, OWN_GROUP, findAccount, normalizeHandle, normalizeSearchTerm, searchUrl, profileUrl, accountKind, groupForAccount, accountPriority } from './accounts.js';
 import { parseCount, shouldCollect } from './counts.js';
-import { decideCollect } from './rules.js';
+import { decideCollect, SKIP_REPLY } from './rules.js';
 
 const CORPUS_MAX = 400;
 const KIND_LABEL = { post: '글', reply: '답글', unknown: '판별 불가' };
@@ -18,8 +18,92 @@ const CUSTOM_GROUP = {
   keywords: []
 };
 
+// 처음 설치/실행 시 채워둘 계정 목록. 내 계정 3개 + 레퍼런스 13개.
+const SEED_OWN = ['banchanddel', 'gomtangkwak', 'jason_chef_suh'];
+const SEED_REFERENCE = [
+  'hello_cafe_bloom', 'oh_badahae', 'kangyuneun', 'uncle_woo_curry', 'shigol_jeotgal',
+  '7c_rice', 'fruit_matjip', 'apple_ljk', '2harmony_sikhye', 'greemeet.kr',
+  'masigguma__', 'jieun_tomato', 'fresh.famer'
+];
+
+// 시드 버전. 올리면(빠진 기본 계정 보충) 한 번 병합이 다시 돈다.
+const SEED_VERSION = 2;
+
+function makeSeedAccount(username, kind) {
+  return {
+    username: normalizeHandle(username),
+    kind,
+    note: '',
+    collectAll: true,
+    priority: kind === 'own' ? 2 : 1,
+    visits: 0,
+    lastVisitedAt: null,
+    addedAt: new Date().toISOString()
+  };
+}
+
+/**
+ * 기본 계정(내 계정 3 + 레퍼런스 13)을 채운다.
+ *   - 계정이 아예 없으면: 전부 시드.
+ *   - 이미 있으면: 사용자 계정은 그대로 두고, 빠진 기본 계정만 보충(시드 버전당 1회).
+ */
+async function ensureAccountsSeeded() {
+  const raw = await chrome.storage.local.get([KEYS.ACCOUNTS, 'seededVersion']);
+  const existing = raw[KEYS.ACCOUNTS];
+  const defaults = [
+    ...SEED_OWN.map((u) => makeSeedAccount(u, 'own')),
+    ...SEED_REFERENCE.map((u) => makeSeedAccount(u, 'reference'))
+  ].filter((a) => a.username);
+
+  if (existing === undefined) {
+    await set({ [KEYS.ACCOUNTS]: defaults, seededVersion: SEED_VERSION });
+    return;
+  }
+  if (raw.seededVersion === SEED_VERSION) return;   // 이미 이 버전 시드를 반영함
+
+  const have = new Set(existing.map((a) => normalizeHandle(a.username)));
+  const merged = [...existing];
+  for (const d of defaults) if (!have.has(d.username)) merged.push(d);
+  await set({ [KEYS.ACCOUNTS]: merged, seededVersion: SEED_VERSION });
+}
+
+// 사람처럼 안 걸리게 도는 기준값을 한 번만 자동 적용한다(사용자가 손 안 대도 되게).
+// 불규칙(0.6~1.8배, 가끔 길게 쉼)은 content.js 가 매 동작마다 흔든다. 여기선 기준값만 정한다.
+const TUNING_VERSION = 2;
+async function applyRecommendedTuning() {
+  const raw = await chrome.storage.local.get([KEYS.SETTINGS, 'tuningVersion']);
+  if (raw.tuningVersion === TUNING_VERSION) return;
+  const cur = { ...DEFAULT_SETTINGS, ...(raw[KEYS.SETTINGS] || {}) };
+  const tuned = {
+    ...cur,
+    autoScroll: true,
+    autoScrollDelayMs: 4000,        // 실제 2.4~7.2초 간격 + 가끔 더 길게 쉼
+    rotate: true,
+    rotateAccounts: true,
+    rotateFeed: true,
+    accountPasses: 3,
+    rotateRandomWhenDone: true,
+    rotateDwellMs: 110000,          // 한 곳에 77~154초 머무름
+    collectReplies: true,           // 답글은 원글 찾는 신호로만 사용
+    postsOnly: true,                // 실제 저장은 원글만
+    koreanOnly: true,
+    enrichViews: true,              // 조회수 확인(반응 기준 표본 학습에 필요)
+    // 반응 좋은 글만 자동 수집 — 조회 1만~3만 평균 학습 기준
+    adaptiveGate: true,
+    adaptiveViewMin: 10000,
+    adaptiveViewMax: 30000
+  };
+  await set({ [KEYS.SETTINGS]: tuned, tuningVersion: TUNING_VERSION });
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   ensureSeeded();
+  ensureAccountsSeeded();
+  applyRecommendedTuning();
+});
+chrome.runtime.onStartup?.addListener?.(() => {
+  ensureAccountsSeeded();
+  applyRecommendedTuning();
 });
 
 /* ------------------------------------------------------------------ 유틸 */
@@ -33,6 +117,75 @@ async function updateBadge(count) {
 function ensureCustomGroup(groups) {
   if (!groups.some((g) => g.id === 'custom')) groups.push({ ...CUSTOM_GROUP, keywords: [] });
   return groups;
+}
+
+/* ------------------------------------------------- 반응 기준 자동학습 */
+
+const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+/** 본문 정규화 — 공백 접어서 같은 내용 판별(중복글 제거용). */
+const normText = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+/** 자동발굴로 레퍼런스에 넣을 계정 레코드. */
+function makeDiscoveredAccount(handle) {
+  return {
+    username: handle,
+    kind: 'reference',
+    note: '자동발굴',
+    auto: true,
+    collectAll: false,
+    priority: 1,
+    visits: 0,
+    lastVisitedAt: null,
+    addedAt: new Date().toISOString()
+  };
+}
+
+/** 조회수가 표본 구간(1만~3만)이면 그 글의 좋아요·댓글·리포를 표본에 더한다. */
+function addBench(bench, counts, settings) {
+  const views = num(counts && counts.views);
+  if (views === null) return false;
+  const lo = Number(settings.adaptiveViewMin) || 10000;
+  const hi = Number(settings.adaptiveViewMax) || 30000;
+  if (views < lo || views > hi) return false;
+  bench.n = (bench.n || 0) + 1;
+  bench.likes = (bench.likes || 0) + (num(counts.likes) || 0);
+  bench.replies = (bench.replies || 0) + (num(counts.replies) || 0);
+  bench.reposts = (bench.reposts || 0) + (num(counts.reposts) || 0);
+  return true;
+}
+
+/**
+ * 반응 기준으로 이 원글을 담을지 판단한다.
+ *  - 표본이 충분하면: 좋아요·댓글·리포 3개 중 N개가 학습 평균 이상이면 담는다.
+ *  - 표본 예열 중이면: 임시 하한(좋아요/댓글)만 넘으면 담아 표본을 모은다.
+ */
+function adaptiveDecision(counts, settings, bench) {
+  const n = (bench && bench.n) || 0;
+  const minS = Number(settings.adaptiveMinSamples) || 6;
+  const likes = num(counts.likes);
+  const replies = num(counts.replies);
+  const reposts = num(counts.reposts);
+
+  if (n < minS) {
+    const okL = (likes || 0) >= (Number(settings.coldStartMinLikes) || 30);
+    const okR = (replies || 0) >= (Number(settings.coldStartMinReplies) || 5);
+    return (okL || okR)
+      ? { collect: true, grade: '예열' }
+      : { collect: false, reason: '예열 하한 미달' };
+  }
+
+  const avgL = bench.likes / n;
+  const avgR = bench.replies / n;
+  const avgP = bench.reposts / n;
+  let met = 0;
+  if (likes !== null && likes >= avgL) met += 1;
+  if (replies !== null && replies >= avgR) met += 1;
+  if (reposts !== null && reposts >= avgP) met += 1;
+  const need = Number(settings.adaptiveMetricsNeeded) || 2;
+  return met >= need
+    ? { collect: true, grade: '반응상위' }
+    : { collect: false, reason: '평균 미달' };
 }
 
 /* -------------------------------------------------------------- 핵심 로직 */
@@ -98,6 +251,18 @@ async function handlePosts(incoming) {
   if (!state.settings.collecting) return { matched: [] };
 
   const settings = state.settings;
+  const bench = state.stats.bench = state.stats.bench || { n: 0, likes: 0, replies: 0, reposts: 0 };
+
+  // 중복글 제거 — 이미 저장된 본문 집합(이번 배치에서 담을 때마다 추가)
+  const seenTexts = new Set();
+  if (settings.dedupText !== false) {
+    for (const p of state.posts) { const t = normText(p.text); if (t) seenTexts.add(t); }
+  }
+  // 자동 추천계정 발굴 — 미등록 계정의 '조건 맞는 원글' 누적
+  const known = new Set((state.accounts || []).map((a) => normalizeHandle(a.username)));
+  const cand = state.stats.candidateAuthors = state.stats.candidateAuthors || {};
+  const newlyAdded = [];
+
   const bump = (reason) => {
     state.stats.skipped = state.stats.skipped || {};
     state.stats.skipped[reason] = (state.stats.skipped[reason] || 0) + 1;
@@ -131,9 +296,11 @@ async function handlePosts(incoming) {
     state.stats.sinceSuggest += 1;
     corpus.push(post.text);
 
-    // 외국어 글은 여기서 걸러낸다 (레퍼런스 계정 글은 예외)
+    // 외국어 글은 여기서 걸러낸다 (내 계정 / 전체수집 레퍼런스 계정은 예외)
     const account = findAccount(post.author, state.accounts);
-    const isReference = Boolean(account && account.collectAll);
+    const isOwn = Boolean(account && accountKind(account) === 'own');
+    // 내 계정은 무조건 전부, 레퍼런스는 전체수집(collectAll)일 때 전부.
+    const isReference = Boolean(account && (isOwn || account.collectAll));
     if (settings.koreanOnly && !isReference && !isKorean(post.text, settings.koreanMinRatio)) {
       state.stats.skippedForeign = (state.stats.skippedForeign || 0) + 1;
       continue;
@@ -144,10 +311,37 @@ async function handlePosts(incoming) {
     const counts = seen.get(post.id).counts;
     delete post.countsRaw;
 
-    // 원글 수집 판단 — 댓글 · 판매자 글 · 좋아요 세 조건을 모두 만족해야 담는다
-    const decision = isReference
-      ? { collect: true }
-      : decideCollect(post, counts, settings);
+    // 조회수가 잡힌 글이면 반응 기준 표본(1만~3만)에 반영
+    addBench(bench, counts, settings);
+
+    // 수집 판단
+    //  1) 답글은 저장하지 않는다 — 원글을 찾는 신호로만 쓴다(실제 저장은 원글만).
+    //  2) 반응 기준(adaptiveGate) ON: 내 계정·레퍼런스 포함 전부 학습 평균으로 거른다.
+    //  3) OFF: 기존 방식(전체수집 계정은 그대로, 나머지는 등급 기준).
+    let decision;
+    if (settings.postsOnly !== false && post.type === 'reply') {
+      decision = { collect: false, reason: SKIP_REPLY };
+    } else if (settings.adaptiveGate !== false) {
+      decision = adaptiveDecision(counts, settings, bench);
+    } else if (isReference) {
+      decision = { collect: true };
+    } else {
+      decision = decideCollect(post, counts, settings);
+    }
+
+    // 자동 추천계정 발굴 — 미등록 계정의 조건 맞는 원글이 임계치 이상이면 레퍼런스로 추가
+    if (settings.autoDiscoverRef !== false && decision.collect && post.type !== 'reply') {
+      const h = normalizeHandle(post.author);
+      if (h && !known.has(h)) {
+        cand[h] = (cand[h] || 0) + 1;
+        if (cand[h] >= (Number(settings.autoRefThreshold) || 2)) {
+          newlyAdded.push(makeDiscoveredAccount(h));
+          known.add(h);
+          delete cand[h];
+          state.stats.autoAdded = [...new Set([...(state.stats.autoAdded || []), h])];
+        }
+      }
+    }
 
     if (hits.length || decision.collect) {
       const displayHits = hits.length
@@ -196,6 +390,14 @@ async function handlePosts(incoming) {
     }
 
     if (!decision.collect) { bump(decision.reason); continue; }
+
+    // 중복글(본문 동일)은 담지 않는다
+    if (settings.dedupText !== false) {
+      const nt = normText(post.text);
+      if (nt && seenTexts.has(nt)) { bump('중복글'); continue; }
+      if (nt) seenTexts.add(nt);
+    }
+
     bump(`수집 ${decision.grade}등급`);
 
     const record = {
@@ -205,9 +407,10 @@ async function handlePosts(incoming) {
       images: post.images || [],
       seller: decision.seller || null,   // 등급은 볼 때 계산하므로 저장하지 않는다
       keywords: [...new Set(hits.map((h) => h.keyword))],
-      groups: account ? [...new Set([...groups, ACCOUNT_GROUP.id])] : groups,
-      groupLabels: [...new Set([...hits.map((h) => h.label), ...(account ? [ACCOUNT_GROUP.label] : [])])],
+      groups: account ? [...new Set([...groups, groupForAccount(account).id])] : groups,
+      groupLabels: [...new Set([...hits.map((h) => h.label), ...(account ? [groupForAccount(account).label] : [])])],
       account: account ? normalizeHandle(post.author) : null,
+      accountKind: account ? accountKind(account) : null,
       inquiries: [],
       snippet: hits.length ? snippetAround(post.text, hits[0].keyword) : post.text.slice(0, 80),
       collectedAt: new Date().toISOString()
@@ -239,6 +442,9 @@ async function handlePosts(incoming) {
     [KEYS.PARENT_QUEUE]: [...parentQueue].slice(0, 300)
   };
 
+  // 자동발굴로 새로 찾은 레퍼런스 계정 반영
+  if (newlyAdded.length) patch[KEYS.ACCOUNTS] = [...state.accounts, ...newlyAdded];
+
   if (state.stats.sinceSuggest >= (settings.suggestEvery || 60)) {
     state.stats.sinceSuggest = 0;
     patch[KEYS.SUGGESTIONS] = mergeSuggestions(
@@ -265,13 +471,14 @@ function mergeSuggestions(previous, fresh) {
 /* ------------------------------------------------------------- 내보내기 */
 
 function toCsv(posts) {
-  const cols = ['collectedAt', 'postedAt', 'kind', 'author', 'referenceAccount', 'url', 'groupLabels', 'keywords',
+  const cols = ['collectedAt', 'postedAt', 'kind', 'author', 'account', 'accountKind', 'url', 'groupLabels', 'keywords',
     'views', 'likes', 'replies', 'reposts', 'links', 'images', 'text'];
   const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const rows = [cols.join(',')];
   for (const p of posts) {
     rows.push([
-      p.collectedAt, p.postedAt, KIND_LABEL[p.type] || '판별 불가', p.author, p.account || '', p.url,
+      p.collectedAt, p.postedAt, KIND_LABEL[p.type] || '판별 불가', p.author, p.account || '',
+      p.accountKind === 'own' ? '내 계정' : p.accountKind === 'reference' ? '레퍼런스' : '', p.url,
       (p.groupLabels || []).join(' | '),
       (p.keywords || []).join(' | '),
       p.counts?.views, p.counts?.likes, p.counts?.replies, p.counts?.reposts,
@@ -285,7 +492,7 @@ function toCsv(posts) {
 
 function toMarkdown(posts, groups) {
   const lines = ['# 쓰레드 레퍼런스 수집 결과', '', `- 수집 시각: ${new Date().toISOString()}`, `- 총 ${posts.length}건`, ''];
-  for (const g of [...groups, ACCOUNT_GROUP]) {
+  for (const g of [...groups, OWN_GROUP, ACCOUNT_GROUP]) {
     const items = posts.filter((p) => (p.groups || []).includes(g.id));
     if (!items.length) continue;
     lines.push(`## ${g.label} (${items.length}건)`, '');
@@ -329,9 +536,12 @@ const handlers = {
 
   GET_STATE: async () => {
     await ensureSeeded();
+    await ensureAccountsSeeded();
+    await applyRecommendedTuning();
     const state = await getAll();
     state.groups = ensureCustomGroup(state.groups);
     state.accountGroup = ACCOUNT_GROUP;
+    state.ownGroup = OWN_GROUP;
     return state;
   },
 
@@ -409,10 +619,16 @@ const handlers = {
     const handle = normalizeHandle(msg.username);
     if (!handle) return { error: '계정 형식을 알아볼 수 없습니다. @아이디 또는 프로필 주소를 넣어주세요.' };
     if (findAccount(handle, accounts)) return { accounts, duplicate: true };
+    const kind = msg.kind === 'own' ? 'own' : 'reference';
     const next = [...accounts, {
       username: handle,
+      kind,
       note: msg.note || '',
-      collectAll: msg.collectAll !== false,
+      // 내 계정은 항상 전부 수집. 레퍼런스는 기본 전부지만 끌 수 있다.
+      collectAll: kind === 'own' ? true : msg.collectAll !== false,
+      priority: Number.isFinite(Number(msg.priority)) ? Number(msg.priority) : (kind === 'own' ? 2 : 1),
+      visits: 0,
+      lastVisitedAt: null,
       addedAt: new Date().toISOString()
     }];
     await set({ [KEYS.ACCOUNTS]: next });
@@ -422,8 +638,23 @@ const handlers = {
   UPDATE_ACCOUNT: async (msg) => {
     const { accounts } = await getAll();
     const handle = normalizeHandle(msg.username);
+    const next = accounts.map((a) => {
+      if (normalizeHandle(a.username) !== handle) return a;
+      const merged = { ...a, ...msg.patch };
+      if (merged.kind === 'own') merged.collectAll = true;   // 내 계정은 항상 전부 수집
+      return merged;
+    });
+    await set({ [KEYS.ACCOUNTS]: next });
+    return { accounts: next };
+  },
+
+  /** 계정 수집 진행(방문 횟수)을 0으로 되돌린다 — 다시 우선 수집시키고 싶을 때. */
+  RESET_ACCOUNT_PROGRESS: async (msg) => {
+    const { accounts } = await getAll();
+    const handle = msg.username ? normalizeHandle(msg.username) : null;
     const next = accounts.map((a) =>
-      normalizeHandle(a.username) === handle ? { ...a, ...msg.patch } : a);
+      (!handle || normalizeHandle(a.username) === handle)
+        ? { ...a, visits: 0, lastVisitedAt: null } : a);
     await set({ [KEYS.ACCOUNTS]: next });
     return { accounts: next };
   },
@@ -494,8 +725,9 @@ const handlers = {
 
   /** 조회수 확인 결과. 못 찾았어도 확인 시각을 남겨 다시 시도하지 않는다. */
   ENRICH_RESULT: async (msg) => {
-    const { posts, viewQueue, stats } = await getAll();
+    const { posts, viewQueue, stats, settings } = await getAll();
     const now = new Date().toISOString();
+    const target = posts.find((p) => p.id === msg.id);
     const next = posts.map((p) => (p.id !== msg.id ? p : {
       ...p,
       counts: { ...p.counts, views: msg.views ?? p.counts?.views ?? null },
@@ -503,6 +735,12 @@ const handlers = {
     }));
     stats.enrichTried += 1;
     if (msg.views !== null && msg.views !== undefined) stats.enrichFilled += 1;
+
+    // 조회수가 채워졌고 표본 구간이면 반응 기준 표본에 반영
+    if ((msg.views ?? null) !== null && target) {
+      stats.bench = stats.bench || { n: 0, likes: 0, replies: 0, reposts: 0 };
+      addBench(stats.bench, { ...target.counts, views: msg.views }, settings);
+    }
 
     await set({
       [KEYS.POSTS]: next,
@@ -551,24 +789,74 @@ const handlers = {
   /* ---- 순회 수집 ---- */
 
   /**
-   * 지금 있어야 할 곳과, 다음에 갈 곳을 알려준다.
-   * 추천 피드와 저장한 검색어들을 순서대로 돈다.
+   * 다음에 갈 곳을 정한다.
+   *
+   *  우선순위 단계 — 아직 목표 바퀴(accountPasses)를 못 채운 계정이 있으면
+   *    그 계정부터 방문한다. (내 계정 우선, priority 높은 순, 방문 적은 순)
+   *    쓰레드가 한 번에 최근 몇 글만 주므로 한 계정을 여러 바퀴 돌며 누적한다.
+   *
+   *  랜덤 단계 — 모든 계정이 목표 바퀴를 채우면, 그때부턴 계정·추천 피드·검색어를
+   *    무작위로 재방문한다(새 글 확인 + 더 깊이 긁기).
    */
   ROTATION_NEXT: async () => {
-    const { settings, searchTerms, rotation } = await getAll();
+    const { settings, searchTerms, accounts } = await getAll();
     if (!settings.collecting || !settings.rotate) return { sources: [], next: null };
 
-    const sources = [];
-    if (settings.rotateFeed !== false) sources.push({ label: '추천 피드', url: 'https://www.threads.com/' });
-    for (const t of searchTerms) sources.push({ label: `검색: ${t.value}`, url: searchUrl(t.value) });
-    if (!sources.length) return { sources: [], next: null };
+    const passes = Math.max(1, Number(settings.accountPasses) || 3);
+    const useAccounts = settings.rotateAccounts !== false;
+    const randomWhenDone = settings.rotateRandomWhenDone !== false;
 
-    const index = (Number(rotation.index) || 0) % sources.length;
-    const nextIndex = (index + 1) % sources.length;
-    const next = sources[nextIndex];
+    const feedSources = [];
+    if (settings.rotateFeed !== false) {
+      feedSources.push({ type: 'feed', label: '추천 피드', url: 'https://www.threads.com/' });
+    }
+    const searchSources = (searchTerms || []).map((t) => ({
+      type: 'search', label: `검색: ${t.value}`, url: searchUrl(t.value)
+    }));
+    const acctSources = useAccounts ? (accounts || []).map((a) => ({
+      type: 'account',
+      username: normalizeHandle(a.username),
+      label: `계정: @${a.username}`,
+      url: profileUrl(a.username),
+      kind: accountKind(a),
+      priority: accountPriority(a),
+      visits: Number(a.visits) || 0
+    })).filter((s) => s.username) : [];
 
-    await set({ [KEYS.ROTATION]: { index: nextIndex, movedAt: new Date().toISOString(), url: next.url } });
-    return { sources, next, total: sources.length, position: nextIndex + 1 };
+    const allSources = [...acctSources, ...feedSources, ...searchSources];
+    if (!allSources.length) return { sources: [], next: null };
+
+    // 우선순위 단계: 아직 목표 바퀴를 못 채운 계정
+    const undone = acctSources.filter((s) => s.visits < passes);
+    let next;
+    let phase;
+    if (undone.length && (randomWhenDone || true)) {
+      phase = 'priority';
+      undone.sort((a, b) =>
+        (b.priority - a.priority) || (a.visits - b.visits) || a.username.localeCompare(b.username));
+      next = undone[0];
+    } else {
+      phase = 'random';
+      const pool = randomWhenDone ? allSources : (acctSources.length ? acctSources : allSources);
+      next = pool[Math.floor(Math.random() * pool.length)];
+    }
+
+    // 방문한 계정의 진행도를 올린다
+    if (next.type === 'account') {
+      const uname = next.username;
+      const nextAccounts = (accounts || []).map((a) =>
+        normalizeHandle(a.username) === uname
+          ? { ...a, visits: (Number(a.visits) || 0) + 1, lastVisitedAt: new Date().toISOString() }
+          : a);
+      await set({ [KEYS.ACCOUNTS]: nextAccounts });
+    }
+    await set({ [KEYS.ROTATION]: { index: 0, movedAt: new Date().toISOString(), url: next.url, phase } });
+
+    const accountsDone = acctSources.length - undone.length;
+    return {
+      sources: allSources, next, total: allSources.length,
+      phase, accountsTotal: acctSources.length, accountsDone
+    };
   },
 
   /* ---- 결과 페이지 필터 ---- */

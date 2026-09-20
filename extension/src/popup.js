@@ -34,18 +34,32 @@ function renderSettings() {
   $('#highlight').checked = !!s.highlight;
   $('#autoScrollDelayMs').value = s.autoScrollDelayMs;
   $('#minChars').value = s.minChars;
-  $('#suggestEvery').value = s.suggestEvery;
+  if ($('#suggestEvery')) $('#suggestEvery').value = s.suggestEvery;
   $('#collectReplies').checked = s.collectReplies !== false;
   $('#koreanOnly').checked = s.koreanOnly !== false;
   $('#rotate').checked = Boolean(s.rotate);
+  $('#rotateAccounts').checked = s.rotateAccounts !== false;
   $('#rotateFeed').checked = s.rotateFeed !== false;
+  $('#rotateRandomWhenDone').checked = s.rotateRandomWhenDone !== false;
+  $('#accountPasses').value = s.accountPasses || 3;
   $('#rotateDwellMs').value = s.rotateDwellMs;
-  const sourceCount = (s.rotateFeed !== false ? 1 : 0) + (state.searchTerms || []).length;
-  $('#rotateStats').textContent = s.rotate
-    ? (sourceCount > 1
-        ? `순회 대상 ${sourceCount}곳 · 지금 ${(state.rotation && state.rotation.index + 1) || 1}번째`
-        : '순회할 곳이 하나뿐입니다. 아래에서 검색어를 추가하세요.')
-    : '';
+  const passes = Math.max(1, Number(s.accountPasses) || 3);
+  const accts = state.accounts || [];
+  const acctCount = s.rotateAccounts !== false ? accts.length : 0;
+  const doneCount = accts.filter((a) => (Number(a.visits) || 0) >= passes).length;
+  const sourceCount = acctCount + (s.rotateFeed !== false ? 1 : 0) + (state.searchTerms || []).length;
+  if (!s.rotate) {
+    $('#rotateStats').textContent = '';
+  } else if (!sourceCount) {
+    $('#rotateStats').textContent = '순회할 곳이 없습니다. 계정이나 검색어를 추가하세요.';
+  } else if (acctCount && doneCount < acctCount) {
+    $('#rotateStats').textContent =
+      `우선순위 단계 — 계정 ${doneCount}/${acctCount} 완료 (각 ${passes}바퀴 목표). 덜 모은 계정부터 방문 중.`;
+  } else if (acctCount) {
+    $('#rotateStats').textContent = `랜덤 단계 — 계정 ${acctCount}곳 목표 달성. 순회 대상 ${sourceCount}곳 무작위 재방문.`;
+  } else {
+    $('#rotateStats').textContent = `순회 대상 ${sourceCount}곳`;
+  }
   $('#minReplies').value = s.minReplies;
   $('#minLikes').value = s.minLikes;
   $('#requireSeller').checked = s.requireSeller !== false;
@@ -62,6 +76,23 @@ function renderSettings() {
   $('#enrichStats').textContent = queue.length || stats.enrichTried
     ? `확인 대기 ${queue.length}건 · 확인 ${stats.enrichTried}건 중 ${stats.enrichFilled}건 채움`
     : '';
+
+  // 반응 기준 자동학습 상태
+  if ($('#adaptiveGate')) $('#adaptiveGate').checked = s.adaptiveGate !== false;
+  if ($('#adaptiveStats')) {
+    const b = stats.bench || { n: 0, likes: 0, replies: 0, reposts: 0 };
+    const minS = Number(s.adaptiveMinSamples) || 6;
+    if (s.adaptiveGate === false) {
+      $('#adaptiveStats').textContent = '';
+    } else if ((b.n || 0) < minS) {
+      $('#adaptiveStats').textContent =
+        `예열 중 — 표본 ${b.n || 0}/${minS}개 (조회 ${Math.round((s.adaptiveViewMin || 10000) / 10000)}만~${Math.round((s.adaptiveViewMax || 30000) / 10000)}만). 그동안은 좋아요 ${s.coldStartMinLikes || 30}+ 또는 댓글 ${s.coldStartMinReplies || 5}+ 원글을 모읍니다.`;
+    } else {
+      const n = b.n;
+      $('#adaptiveStats').textContent =
+        `기준(표본 ${n}개 평균 이상): ♥ ${Math.round(b.likes / n)} · 댓글 ${Math.round(b.replies / n)} · 리포 ${Math.round(b.reposts / n)} 중 ${Number(s.adaptiveMetricsNeeded) || 2}개 충족 원글만 저장`;
+    }
+  }
 
   const approved = state.groups.filter((g) => g.status === 'approved');
   $('#searchKeyword').innerHTML = approved
@@ -81,29 +112,65 @@ function renderSearchTerms() {
     : '<p class="muted">저장한 검색어가 없습니다.</p>';
 }
 
+function accountCardHtml(a, count, passes) {
+  const kind = a.kind === 'own' ? 'own' : 'reference';
+  const visits = Number(a.visits) || 0;
+  const done = visits >= passes;
+  const prio = Number.isFinite(Number(a.priority)) ? Number(a.priority) : (kind === 'own' ? 2 : 1);
+  const progress = done
+    ? `<span class="badge on">수집완료 ${visits}바퀴</span>`
+    : `<span class="badge">진행 ${visits}/${passes}바퀴</span>`;
+  const collectAllRow = kind === 'reference'
+    ? `<label class="row" style="margin:6px 0 0">
+         <input type="checkbox" data-collectall="${esc(a.username)}" ${a.collectAll ? 'checked' : ''} />
+         키워드가 안 맞아도 이 계정 글은 전부 수집
+       </label>`
+    : '<div class="muted" style="margin:6px 0 0">내 계정 — 항상 전부 수집</div>';
+  return `
+    <div class="group">
+      <div class="group-head">
+        <span class="group-title">@${esc(a.username)}
+          <span class="badge">${count}건</span> ${progress}
+          ${a.auto ? '<span class="badge">자동발굴</span>' : ''}
+        </span>
+        <span>
+          <button class="tiny" data-profile="${esc(a.username)}">프로필</button>
+          <button class="tiny danger" data-rmaccount="${esc(a.username)}">삭제</button>
+        </span>
+      </div>
+      <div class="row" style="margin:6px 0 0; gap:8px; align-items:center">
+        <label>우선순위
+          <select data-priority="${esc(a.username)}">
+            <option value="2" ${prio === 2 ? 'selected' : ''}>높음</option>
+            <option value="1" ${prio === 1 ? 'selected' : ''}>보통</option>
+            <option value="0" ${prio === 0 ? 'selected' : ''}>낮음</option>
+          </select>
+        </label>
+        <button class="tiny" data-switchkind="${esc(a.username)}" data-to="${kind === 'own' ? 'reference' : 'own'}">
+          ${kind === 'own' ? '레퍼런스로' : '내 계정으로'}</button>
+        <button class="tiny" data-resetprogress="${esc(a.username)}" title="다시 우선 수집">진행 초기화</button>
+      </div>
+      ${collectAllRow}
+    </div>`;
+}
+
 function renderAccounts() {
   const list = state.accounts || [];
+  const passes = Math.max(1, Number((state.settings || {}).accountPasses) || 3);
   const counts = new Map();
   for (const p of state.posts || []) if (p.account) counts.set(p.account, (counts.get(p.account) || 0) + 1);
 
-  $('#accounts').innerHTML = list.length
-    ? list.map((a) => `
-        <div class="group">
-          <div class="group-head">
-            <span class="group-title">@${esc(a.username)}
-              <span class="badge">${counts.get(a.username) || 0}건</span>
-            </span>
-            <span>
-              <button class="tiny" data-profile="${esc(a.username)}">프로필 열기</button>
-              <button class="tiny danger" data-rmaccount="${esc(a.username)}">삭제</button>
-            </span>
-          </div>
-          <label class="row" style="margin:6px 0 0">
-            <input type="checkbox" data-collectall="${esc(a.username)}" ${a.collectAll ? 'checked' : ''} />
-            키워드가 안 맞아도 이 계정 글은 전부 수집
-          </label>
-        </div>`).join('')
-    : '<div class="empty">등록한 계정이 없습니다. 위에 @아이디를 넣어 추가하세요.</div>';
+  const own = list.filter((a) => a.kind === 'own');
+  const ref = list.filter((a) => a.kind !== 'own');
+
+  $('#ownCount').textContent = own.length ? `(${own.length})` : '';
+  $('#refCount').textContent = ref.length ? `(${ref.length})` : '';
+  $('#ownAccounts').innerHTML = own.length
+    ? own.map((a) => accountCardHtml(a, counts.get(a.username) || 0, passes)).join('')
+    : '<div class="empty">내 계정이 없습니다. 위에서 “내 계정”으로 추가하세요.</div>';
+  $('#refAccounts').innerHTML = ref.length
+    ? ref.map((a) => accountCardHtml(a, counts.get(a.username) || 0, passes)).join('')
+    : '<div class="empty">레퍼런스 계정이 없습니다. 위에서 추가하세요.</div>';
 }
 
 function renderGroups() {
@@ -191,7 +258,8 @@ function renderFilterOptions() {
   const current = $('#filterGroup').value;
   const counts = new Map();
   for (const p of state.posts || []) for (const g of p.groups || []) counts.set(g, (counts.get(g) || 0) + 1);
-  const all = state.accountGroup ? [...(state.groups || []), state.accountGroup] : (state.groups || []);
+  const extra = [state.ownGroup, state.accountGroup].filter(Boolean);
+  const all = [...(state.groups || []), ...extra];
   $('#filterGroup').innerHTML =
     `<option value="">전체 (${(state.posts || []).length})</option>` +
     all.map((g) => `<option value="${esc(g.id)}">${esc(g.label)} (${counts.get(g.id) || 0})</option>`).join('');
@@ -249,13 +317,17 @@ $('#highlight').addEventListener('change', (e) => patchSettings({ highlight: e.t
 $('#collectReplies').addEventListener('change', (e) => patchSettings({ collectReplies: e.target.checked }));
 $('#koreanOnly').addEventListener('change', (e) => patchSettings({ koreanOnly: e.target.checked }));
 $('#rotate').addEventListener('change', (e) => patchSettings({ rotate: e.target.checked }));
+$('#rotateAccounts').addEventListener('change', (e) => patchSettings({ rotateAccounts: e.target.checked }));
 $('#rotateFeed').addEventListener('change', (e) => patchSettings({ rotateFeed: e.target.checked }));
+$('#rotateRandomWhenDone').addEventListener('change', (e) => patchSettings({ rotateRandomWhenDone: e.target.checked }));
 $('#requireSeller').addEventListener('change', (e) => patchSettings({ requireSeller: e.target.checked }));
 $('#postsOnly').addEventListener('change', (e) => patchSettings({ postsOnly: e.target.checked }));
 $('#minGrade').addEventListener('change', (e) => patchSettings({ minGrade: e.target.value }));
 $('#enrichViews').addEventListener('change', (e) => patchSettings({ enrichViews: e.target.checked }));
-for (const id of ['autoScrollDelayMs', 'minChars', 'suggestEvery', 'enrichMinReplies', 'enrichMinDelayMs', 'minLikes', 'minReplies', 'rotateDwellMs', 'sellerThreshold']) {
-  $(`#${id}`).addEventListener('change', (e) => patchSettings({ [id]: Number(e.target.value) }));
+if ($('#adaptiveGate')) $('#adaptiveGate').addEventListener('change', (e) => patchSettings({ adaptiveGate: e.target.checked }));
+for (const id of ['autoScrollDelayMs', 'minChars', 'suggestEvery', 'enrichMinReplies', 'enrichMinDelayMs', 'minLikes', 'minReplies', 'rotateDwellMs', 'sellerThreshold', 'accountPasses']) {
+  const el = $(`#${id}`);
+  if (el) el.addEventListener('change', (e) => patchSettings({ [id]: Number(e.target.value) }));
 }
 
 $('#groups').addEventListener('click', async (e) => {
@@ -331,7 +403,8 @@ $('#searchTerms').addEventListener('click', async (e) => {
 $('#addAccount').addEventListener('click', async () => {
   const username = $('#newAccount').value.trim();
   if (!username) return;
-  const res = await send({ type: 'ADD_ACCOUNT', username });
+  const kind = $('#newAccountKind').value === 'own' ? 'own' : 'reference';
+  const res = await send({ type: 'ADD_ACCOUNT', username, kind });
   if (res?.error) return flash('#accountError', res.error);
   if (res?.duplicate) flash('#accountError', '이미 등록된 계정입니다.');
   $('#newAccount').value = '';
@@ -339,7 +412,7 @@ $('#addAccount').addEventListener('click', async () => {
 });
 $('#newAccount').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#addAccount').click(); });
 
-$('#accounts').addEventListener('click', async (e) => {
+async function onAccountClick(e) {
   const btn = e.target.closest('button');
   if (!btn) return;
   if (btn.dataset.profile) {
@@ -347,15 +420,34 @@ $('#accounts').addEventListener('click', async (e) => {
   } else if (btn.dataset.rmaccount) {
     await send({ type: 'REMOVE_ACCOUNT', username: btn.dataset.rmaccount });
     await refresh();
+  } else if (btn.dataset.switchkind) {
+    const to = btn.dataset.to === 'own' ? 'own' : 'reference';
+    await send({ type: 'UPDATE_ACCOUNT', username: btn.dataset.switchkind, patch: { kind: to } });
+    await refresh();
+  } else if (btn.dataset.resetprogress) {
+    await send({ type: 'RESET_ACCOUNT_PROGRESS', username: btn.dataset.resetprogress });
+    await refresh();
   }
-});
+}
 
-$('#accounts').addEventListener('change', async (e) => {
+async function onAccountChange(e) {
   const box = e.target.closest('input[data-collectall]');
-  if (!box) return;
-  await send({ type: 'UPDATE_ACCOUNT', username: box.dataset.collectall, patch: { collectAll: box.checked } });
-  await refresh();
-});
+  if (box) {
+    await send({ type: 'UPDATE_ACCOUNT', username: box.dataset.collectall, patch: { collectAll: box.checked } });
+    await refresh();
+    return;
+  }
+  const sel = e.target.closest('select[data-priority]');
+  if (sel) {
+    await send({ type: 'UPDATE_ACCOUNT', username: sel.dataset.priority, patch: { priority: Number(sel.value) } });
+    await refresh();
+  }
+}
+
+for (const id of ['#ownAccounts', '#refAccounts']) {
+  $(id).addEventListener('click', onAccountClick);
+  $(id).addEventListener('change', onAccountChange);
+}
 
 $('#filterGroup').addEventListener('change', renderResults);
 $('#search').addEventListener('input', (e) => { query = e.target.value; renderResults(); });

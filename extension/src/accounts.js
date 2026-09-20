@@ -9,8 +9,34 @@
 export const ACCOUNT_GROUP = {
   id: 'reference_account',
   label: '레퍼런스 계정',
-  description: '내가 등록한 계정의 글.'
+  description: '참고용으로 등록한 계정의 글.'
 };
+
+/** 내 계정 = 내가 운영하는 계정. 조건 없이 전부 수집한다(내 글 전체 아카이브). */
+export const OWN_GROUP = {
+  id: 'own_account',
+  label: '내 계정',
+  description: '내가 운영하는 계정의 글 (전부 수집).'
+};
+
+export const ACCOUNT_KINDS = { OWN: 'own', REFERENCE: 'reference' };
+
+/** 계정 종류. 기본은 레퍼런스. */
+export function accountKind(a) {
+  return a && a.kind === 'own' ? 'own' : 'reference';
+}
+
+/** 계정 종류에 맞는 결과 그룹(태그). */
+export function groupForAccount(a) {
+  return accountKind(a) === 'own' ? OWN_GROUP : ACCOUNT_GROUP;
+}
+
+/** 순회 우선순위 기본값 — 내 계정(2)이 레퍼런스(1)보다 먼저. */
+export function accountPriority(a) {
+  const p = Number(a && a.priority);
+  if (Number.isFinite(p)) return p;
+  return accountKind(a) === 'own' ? 2 : 1;
+}
 
 /**
  * 사용자가 아무렇게나 넣어도 핸들만 뽑아낸다.

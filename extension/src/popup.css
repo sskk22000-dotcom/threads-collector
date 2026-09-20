@@ -105,3 +105,14 @@ button.link {
   font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; text-align: left;
 }
 button.link:hover { color: var(--accent); text-decoration: underline; }
+
+/* 계정 탭 — 내 계정 / 레퍼런스 구분 헤더 */
+h4.acct-h {
+  margin: 14px 0 6px; font-size: 12px; font-weight: 700;
+  color: var(--fg); border-bottom: 1px solid var(--line, #333); padding-bottom: 4px;
+}
+h4.acct-h:first-of-type { margin-top: 6px; }
+#newAccountKind {
+  border: 1px solid var(--line, #555); border-radius: 6px;
+  background: var(--bg, #202020); color: var(--fg, #f3f3f3); font: inherit; padding: 3px 6px;
+}

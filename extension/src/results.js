@@ -198,7 +198,8 @@ function render() {
 }
 
 function renderGroupOptions() {
-  const all = state.accountGroup ? [...state.groups, state.accountGroup] : state.groups;
+  const extra = [state.ownGroup, state.accountGroup].filter(Boolean);
+  const all = [...state.groups, ...extra];
   $('#group').innerHTML = '<option value="">전체 그룹</option>' +
     all.map((g) => `<option value="${esc(g.id)}">${esc(g.label)}</option>`).join('');
   $('#group').value = filters.group || '';
