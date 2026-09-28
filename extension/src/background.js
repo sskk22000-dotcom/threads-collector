@@ -126,6 +126,20 @@ const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 /** 본문 정규화 — 공백 접어서 같은 내용 판별(중복글 제거용). */
 const normText = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
 
+// 레퍼런스 글을 로컬 수신서버로 보내 슬랙 daily 풀(reference_pool)로 흘려보낸다.
+// (서비스워커 fetch + host_permissions 127.0.0.1 사용 → 페이지 CSP 영향 없음)
+const REF_SERVER = 'http://127.0.0.1:8790/store';
+function postReference(handle, items) {
+  if (!handle || !Array.isArray(items) || !items.length) return;
+  try {
+    fetch(REF_SERVER + '?acct=' + encodeURIComponent(handle), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(items)
+    }).catch(() => {});   // 서버가 꺼져 있어도 수집엔 영향 없음
+  } catch (_) { /* noop */ }
+}
+
 /** 자동발굴로 레퍼런스에 넣을 계정 레코드. */
 function makeDiscoveredAccount(handle) {
   return {
@@ -262,6 +276,7 @@ async function handlePosts(incoming) {
   const known = new Set((state.accounts || []).map((a) => normalizeHandle(a.username)));
   const cand = state.stats.candidateAuthors = state.stats.candidateAuthors || {};
   const newlyAdded = [];
+  const refOut = [];   // 레퍼런스 계정에서 담은 글 → 로컬 서버로 전송(슬랙 풀용)
 
   const bump = (reason) => {
     state.stats.skipped = state.stats.skipped || {};
@@ -418,6 +433,18 @@ async function handlePosts(incoming) {
     posts.push(record);
     byId.set(post.id, record);
     state.stats.matched += 1;
+
+    // 레퍼런스 계정에서 담은 글은 슬랙 풀로 보내기 위해 모아둔다
+    if (account && accountKind(account) === 'reference') {
+      refOut.push({
+        account: normalizeHandle(post.author),
+        body: post.text,
+        like: counts.likes, reply: counts.replies, repost: counts.reposts,
+        share: null,
+        url: record.url,
+        date: post.postedAt || null
+      });
+    }
   }
 
   // 조회수가 안 잡혔는데 댓글이 많이 달린 글은 나중에 상세 페이지로 확인한다
@@ -456,6 +483,13 @@ async function handlePosts(incoming) {
 
   await set(patch);
   await updateBadge(posts.filter((p) => !p.pending).length);
+
+  // 레퍼런스 글을 계정별로 로컬 서버에 전송(슬랙 daily 풀로 흘려보냄)
+  if (refOut.length) {
+    const byAcct = {};
+    for (const r of refOut) (byAcct[r.account] = byAcct[r.account] || []).push(r);
+    for (const [h, items] of Object.entries(byAcct)) postReference(h, items);
+  }
   return { matched };
 }
 

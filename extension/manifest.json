@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "쓰레드 레퍼런스 수집기",
-  "version": "3.4.0",
+  "version": "3.5.0",
   "description": "구매 문의 댓글이 달린 쓰레드 판매자 글을 찾아 모으는 레퍼런스 수집기.",
   "permissions": [
     "storage",
@@ -13,7 +13,8 @@
     "https://www.threads.com/*",
     "https://threads.com/*",
     "https://www.threads.net/*",
-    "https://threads.net/*"
+    "https://threads.net/*",
+    "http://127.0.0.1:8790/*"
   ],
   "background": {
     "service_worker": "src/background.js",
