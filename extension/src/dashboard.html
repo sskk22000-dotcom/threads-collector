@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="dashboard.css" />
+  <title>반찬뜰 수집기 — 대시보드</title>
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-row">
+      <h1>🧵 반찬뜰 수집기</h1>
+      <label class="switch">
+        <input type="checkbox" id="collecting" />
+        <span>수집 켜기</span>
+      </label>
+      <span class="stat" id="stat">—</span>
+    </div>
+    <nav class="wrap tabs">
+      <button class="tab active" data-tab="review">📋 글 검토·채택</button>
+      <button class="tab" data-tab="accounts">👤 계정</button>
+      <button class="tab" data-tab="settings">⚙️ 설정</button>
+    </nav>
+  </header>
+
+  <main class="wrap">
+    <!-- 검토 -->
+    <section class="panel active" data-panel="review">
+      <div class="toolbar">
+        <label>소스
+          <select id="source">
+            <option value="all">전체</option>
+            <option value="own">내 계정</option>
+            <option value="reference">레퍼런스</option>
+          </select>
+        </label>
+        <label>정렬
+          <select id="sort">
+            <option value="reaction">반응 높은 순</option>
+            <option value="likes">좋아요 순</option>
+            <option value="replies">댓글 순</option>
+            <option value="views">조회수 순</option>
+            <option value="recent">최근 수집 순</option>
+          </select>
+        </label>
+        <label class="grow">검색
+          <input type="search" id="q" placeholder="본문 · 작성자" />
+        </label>
+        <label class="chk"><input type="checkbox" id="onlyPicked" /> 채택한 것만</label>
+        <span class="sp"></span>
+        <button id="exportPicked" class="primary">채택본 내보내기 (JSON)</button>
+      </div>
+      <div class="count" id="reviewCount"></div>
+      <div id="cards"></div>
+    </section>
+
+    <!-- 계정 -->
+    <section class="panel" data-panel="accounts">
+      <p class="hint"><b>내 계정</b>은 내 글 전부, <b>레퍼런스</b>는 반응 좋은 글 위주로 수집합니다.
+        조건 맞는 글이 많은 계정은 자동으로 레퍼런스에 추가돼요.</p>
+      <div class="addrow">
+        <input type="text" id="newAccount" placeholder="@아이디 또는 프로필 주소" />
+        <select id="newKind">
+          <option value="reference">레퍼런스</option>
+          <option value="own">내 계정</option>
+        </select>
+        <button id="addAccount" class="primary">추가</button>
+      </div>
+      <div id="accountError" class="warn hidden"></div>
+      <h3>내 계정 <span class="muted" id="ownN"></span></h3>
+      <div id="ownList" class="acctlist"></div>
+      <h3>레퍼런스 계정 <span class="muted" id="refN"></span></h3>
+      <div id="refList" class="acctlist"></div>
+    </section>
+
+    <!-- 설정 -->
+    <section class="panel" data-panel="settings">
+      <div class="setblock">
+        <h3>수집 방식</h3>
+        <label class="line"><input type="checkbox" id="s_adaptiveGate" /> <span><b>반응 좋은 글만 자동 수집</b><em>조회 1만~3만 평균을 학습해 그 이상인 원글만 저장(가볍게)</em></span></label>
+        <label class="line"><input type="checkbox" id="s_postsOnly" /> <span><b>원글만 저장</b><em>답글은 원글 찾는 신호로만, 저장은 원글만</em></span></label>
+        <label class="line"><input type="checkbox" id="s_dedupText" /> <span><b>중복글 제외</b><em>본문이 같은 글은 중복으로 보고 담지 않음</em></span></label>
+        <label class="line"><input type="checkbox" id="s_koreanOnly" /> <span><b>한국어 글만</b><em>외국어 글 제외</em></span></label>
+      </div>
+      <div class="setblock">
+        <h3>순회 (자동으로 계정·피드 돌며 수집)</h3>
+        <label class="line"><input type="checkbox" id="s_rotate" /> <span><b>자동 순회 켜기</b><em>덜 모은 계정부터 → 다 모으면 랜덤 재방문</em></span></label>
+        <label class="line"><input type="checkbox" id="s_rotateAccounts" /> <span><b>순회에 등록 계정 포함</b></span></label>
+        <label class="line"><input type="checkbox" id="s_rotateFeed" /> <span><b>순회에 추천 피드 포함</b></span></label>
+        <label class="row2">계정당 목표 바퀴 <input type="number" id="s_accountPasses" min="1" max="20" /></label>
+      </div>
+      <div class="setblock">
+        <h3>자동 발굴</h3>
+        <label class="line"><input type="checkbox" id="s_autoDiscoverRef" /> <span><b>추천계정 자동 발굴</b><em>조건 맞는 글이 여러 개인 계정을 레퍼런스로 자동 추가</em></span></label>
+        <label class="row2">기준(조건 맞는 글 수) <input type="number" id="s_autoRefThreshold" min="1" max="10" /></label>
+      </div>
+      <p class="hint">스크롤 속도는 늘 사람처럼 랜덤이라 따로 설정할 필요 없어요. 더 세밀한 옵션은 툴바 팝업에 있습니다.</p>
+    </section>
+  </main>
+
+  <script type="module" src="dashboard.js"></script>
+</body>
+</html>

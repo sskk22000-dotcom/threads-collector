@@ -932,6 +932,15 @@ const handlers = {
     await set({ [KEYS.POSTS]: next });
     await updateBadge(next.length);
     return { ok: true };
+  },
+
+  /** 글 '채택' 토글 — 괜찮다고 고른 글에 표시를 남긴다. */
+  PICK_POST: async (msg) => {
+    const { posts } = await getAll();
+    const next = posts.map((p) =>
+      p.id === msg.id ? { ...p, picked: msg.picked === undefined ? !p.picked : !!msg.picked } : p);
+    await set({ [KEYS.POSTS]: next });
+    return { ok: true };
   }
 };
 

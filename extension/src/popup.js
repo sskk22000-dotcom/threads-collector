@@ -469,6 +469,10 @@ $('#openResults').addEventListener('click', () => {
   chrome.tabs.create({ url: chrome.runtime.getURL('src/results.html') });
 });
 
+$('#openDashboard').addEventListener('click', () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL('src/dashboard.html') });
+});
+
 $('#exportCsv').addEventListener('click', () => send({ type: 'EXPORT', format: 'csv', groupId: $('#filterGroup').value }));
 $('#exportJson').addEventListener('click', () => send({ type: 'EXPORT', format: 'json', groupId: $('#filterGroup').value }));
 $('#exportMd').addEventListener('click', () => send({ type: 'EXPORT', format: 'md', groupId: $('#filterGroup').value }));
