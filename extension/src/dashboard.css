@@ -68,6 +68,7 @@ button.danger { color: var(--danger); }
 .chead .badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px;
   background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
 .chead .badge.own { background: var(--accent-bg); color: var(--accent); border: 0; }
+.chead .badge.cat { background: var(--good-bg); color: var(--good); border: 0; }
 .chead .badge.ref { background: #fff3e0; color: #c26a00; border: 0; }
 @media (prefers-color-scheme: dark){ .chead .badge.ref{ background:#3a2a12; color:#f0b45e; } }
 .ctext { white-space: pre-wrap; word-break: break-word; margin: 0 0 12px; font-size: 14.5px; }

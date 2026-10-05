@@ -7,11 +7,28 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 let state = null;
-const f = { source: 'all', sort: 'reaction', q: '', status: 'todo' };
+const f = { source: 'all', sort: 'reaction', q: '', status: 'todo', category: '' };
 
 const num = (v) => (v === null || v === undefined ? null : v);
 const reaction = (p) => (p.counts?.likes || 0) + (p.counts?.replies || 0) * 3;
 const reviewOf = (p) => p.review || (p.picked ? 'pick' : null);
+
+// 본문 키워드로 자동 카테고리 분류 (음식 사업 맥락)
+const CATEGORIES = [
+  ['국물/곰탕', /곰탕|사골|국물|육수|설렁탕|국밥|우거지|해장|탕\b/],
+  ['카레', /카레|커리/],
+  ['돈까스/분식', /돈까스|돈카츠|카츠|떡볶이|순대|우동|라면|김밥|튀김/],
+  ['반찬/김치', /반찬|김치|젓갈|장아찌|나물|밑반찬|무침|겉절이/],
+  ['고기/닭', /닭발|닭강정|닭|삼겹|불고기|족발|보쌈|갈비|곱창|고기/],
+  ['디저트/베이커리', /디저트|빵|쿠키|케이크|과자|베이커리|마카롱|스콘|크로플|두쫀쿠/],
+  ['음료/카페', /카페|커피|음료|라떼|에이드|스무디/],
+  ['밀키트/간편식', /밀키트|간편식|즉석|레토르트|데워|데우기/]
+];
+function categoryOf(p) {
+  const t = p.text || '';
+  for (const [name, re] of CATEGORIES) if (re.test(t)) return name;
+  return '기타';
+}
 
 function kindMap() {
   const m = new Map();
@@ -38,6 +55,7 @@ function filtered() {
   if (f.status === 'todo') list = list.filter((p) => !reviewOf(p));
   else if (f.status === 'pick') list = list.filter((p) => reviewOf(p) === 'pick');
   else if (f.status === 'reject') list = list.filter((p) => reviewOf(p) === 'reject');
+  if (f.category) list = list.filter((p) => categoryOf(p) === f.category);
   if (q) list = list.filter((p) => (`${p.text} ${p.author}`).toLowerCase().includes(q));
 
   const sorters = {
@@ -59,13 +77,14 @@ function card(p, km) {
   const k = postKind(p, km);
   const rv = reviewOf(p);
   const when = p.postedAt ? new Date(p.postedAt).toLocaleDateString('ko-KR') : '';
-  const img = (p.images || [])[0];
+  // 캡쳐해둔 썸네일(p.thumb, 데이터URL)이 있으면 그걸(만료 안 됨), 없으면 원본 주소(깨지면 링크로 대체)
+  const src = p.thumb || (p.images || [])[0];
   const badge = k === 'own' ? '<span class="badge own">내 계정</span>'
     : k === 'reference' ? '<span class="badge ref">레퍼런스</span>' : '';
-  // 쓰레드 이미지는 만료/핫링크 차단으로 못 뜰 수 있어, 깨지면 원문 링크로 대체한다.
-  const thumb = img
+  const catBadge = `<span class="badge cat">${esc(categoryOf(p))}</span>`;
+  const thumb = src
     ? `<a class="thumb" href="${esc(p.url)}" target="_blank" rel="noreferrer">
-         <img src="${esc(img)}" loading="lazy" referrerpolicy="no-referrer"
+         <img src="${esc(src)}" loading="lazy" referrerpolicy="no-referrer"
               onerror="this.remove();this.closest('.thumb').classList.add('broken');this.closest('.thumb').textContent='🖼 원문에서 사진 보기';">
        </a>`
     : '';
@@ -75,7 +94,7 @@ function card(p, km) {
       <div class="main">
         <div class="chead">
           <a class="author" href="${esc(p.authorUrl || ('https://www.threads.com/@' + p.author))}" target="_blank" rel="noreferrer">@${esc(p.author)}</a>
-          ${badge}
+          ${badge}${catBadge}
           <span class="when">${esc(when)}</span>
         </div>
         <p class="ctext">${esc(p.text)}</p>
@@ -103,6 +122,15 @@ function renderReview() {
   const rej = all.filter((p) => reviewOf(p) === 'reject').length;
   const todo = all.filter((p) => !p.pending && (p.text || '').trim() && !reviewOf(p)).length;
   $('#reviewCount').textContent = `${list.length}건 표시 · ✓채택 ${pick} · ✕거부 ${rej} · 미검토 ${todo} / 전체 ${all.length}건`;
+
+  // 카테고리 옵션(현재 데이터에 있는 것 + 건수)
+  const catCount = {};
+  for (const p of all) { if (p.pending || !(p.text || '').trim()) continue; const c = categoryOf(p); catCount[c] = (catCount[c] || 0) + 1; }
+  const cats = Object.keys(catCount).sort((a, b) => catCount[b] - catCount[a]);
+  const cur = $('#category').value;
+  $('#category').innerHTML = `<option value="">전체</option>` +
+    cats.map((c) => `<option value="${esc(c)}">${esc(c)} (${catCount[c]})</option>`).join('');
+  $('#category').value = cats.includes(cur) ? cur : '';
   $('#cards').innerHTML = list.length
     ? list.map((p) => card(p, km)).join('')
     : '<div class="empty">조건에 맞는 글이 없습니다. 수집을 켜고 쓰레드를 둘러보면 이곳에 쌓입니다.</div>';
@@ -199,6 +227,16 @@ $('#source').addEventListener('change', (e) => { f.source = e.target.value; rend
 $('#sort').addEventListener('change', (e) => { f.sort = e.target.value; renderReview(); });
 $('#q').addEventListener('input', (e) => { f.q = e.target.value; renderReview(); });
 $('#status').addEventListener('change', (e) => { f.status = e.target.value; renderReview(); });
+$('#category').addEventListener('change', (e) => { f.category = e.target.value; renderReview(); });
+
+$('#applyLearning').addEventListener('click', async () => {
+  const r = await send({ type: 'APPLY_PICKS_LEARNING' });
+  if (r?.error) { alert(r.error); return; }
+  alert(`채택 ${r.count}건을 수집 기준에 반영했어요.\n`
+    + `→ 앞으로 "평균 이상"의 기준: ❤️ ${r.avgLike} · 💬 ${r.avgReply} 수준\n`
+    + (r.top?.length ? `→ 채택 글에 자주 나온 단어: ${r.top.join(', ')}` : ''));
+  await load();
+});
 
 $('#cards').addEventListener('click', async (e) => {
   const rv = e.target.closest('button[data-rv]');

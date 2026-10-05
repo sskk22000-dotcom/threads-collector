@@ -954,6 +954,48 @@ const handlers = {
     });
     await set({ [KEYS.POSTS]: next });
     return { ok: true };
+  },
+
+  /**
+   * 채택 반영(고도화) — 내가 '채택'한 글들의 반응 수준을 수집 기준(bench)으로 삼고,
+   * 자주 나온 단어를 뽑아 둔다. 누를수록 수집기가 내 취향 쪽으로 좁혀진다.
+   */
+  APPLY_PICKS_LEARNING: async () => {
+    const { posts, stats, settings } = await getAll();
+    const picked = posts.filter((p) => p.review === 'pick' || p.picked);
+    if (picked.length < 3) return { error: '채택한 글이 너무 적어요. 최소 3개는 채택해주세요.' };
+
+    let sl = 0, sr = 0, sp = 0, n = 0;
+    for (const p of picked) {
+      const c = p.counts || {};
+      if (c.likes != null || c.replies != null) {
+        sl += c.likes || 0; sr += c.replies || 0; sp += c.reposts || 0; n += 1;
+      }
+    }
+    n = n || picked.length;
+    const nn = Math.max(n, Number(settings.adaptiveMinSamples) || 6);
+    // bench 의 평균(sum/n)이 채택 글 평균이 되도록 맞춘다 → '평균 이상' = '내 취향 이상'
+    stats.bench = {
+      n: nn,
+      likes: Math.round((sl / n) * nn),
+      replies: Math.round((sr / n) * nn),
+      reposts: Math.round((sp / n) * nn)
+    };
+
+    const words = {};
+    for (const p of picked) {
+      for (const w of String(p.text || '').split(/[^가-힣a-zA-Z0-9]+/)) {
+        if (w.length >= 2) words[w] = (words[w] || 0) + 1;
+      }
+    }
+    const STOP = new Set(['그리고', '그래서', '진짜', '너무', '하는', '해서', '있는', '없는', '그냥', '이거', '저도', '우리', '제가', '근데']);
+    const top = Object.entries(words)
+      .filter(([w]) => !STOP.has(w))
+      .sort((a, b) => b[1] - a[1]).slice(0, 12).map(([w]) => w);
+    stats.pickedKeywords = top;
+
+    await set({ [KEYS.STATS]: stats });
+    return { ok: true, count: picked.length, avgLike: Math.round(sl / n), avgReply: Math.round(sr / n), top };
   }
 };
 

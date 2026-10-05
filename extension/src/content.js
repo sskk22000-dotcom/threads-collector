@@ -229,6 +229,38 @@
     return [...new Set(out)].slice(0, 4);
   }
 
+  /**
+   * 이미지를 수집 순간에 작은 썸네일(JPEG)로 캡쳐해 둔다.
+   * 쓰레드 CDN 주소는 만료/핫링크 차단이 있어 나중엔 못 뜨므로, 지금 데이터로 박제한다.
+   * CORS 가 막혀 캔버스가 오염되면 toDataURL 이 실패 → null 반환(그땐 링크로 대체).
+   */
+  function snapshotImage(url) {
+    return new Promise((resolve) => {
+      let settled = false;
+      const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+      try {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.referrerPolicy = 'no-referrer';
+        img.onload = () => {
+          try {
+            const max = 280;
+            const s = Math.min(1, max / Math.max(img.naturalWidth || 1, img.naturalHeight || 1));
+            const w = Math.max(1, Math.round((img.naturalWidth || 1) * s));
+            const h = Math.max(1, Math.round((img.naturalHeight || 1) * s));
+            const c = document.createElement('canvas');
+            c.width = w; c.height = h;
+            c.getContext('2d').drawImage(img, 0, 0, w, h);
+            done(c.toDataURL('image/jpeg', 0.55));
+          } catch (_) { done(null); }
+        };
+        img.onerror = () => done(null);
+        setTimeout(() => done(null), 4000);
+        img.src = url;
+      } catch (_) { done(null); }
+    });
+  }
+
   function externalLinks(container) {
     const out = [];
     for (const a of container.querySelectorAll('a[href^="http"]')) {
@@ -324,6 +356,14 @@
       posts.push(entry.post);
     }
     if (!posts.length) return;
+
+    // 이미지가 있는 글은 지금 썸네일로 캡쳐해 둔다(주소 만료 대비). 첫 장만, 실패하면 그냥 넘어감.
+    await Promise.all(posts.map(async (p) => {
+      if (!p.thumb && p.images && p.images[0]) {
+        const t = await snapshotImage(p.images[0]);
+        if (t) p.thumb = t;
+      }
+    }));
 
     let res;
     try {

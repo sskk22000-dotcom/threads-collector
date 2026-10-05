@@ -43,6 +43,9 @@
             <option value="recent">최근 수집 순</option>
           </select>
         </label>
+        <label>카테고리
+          <select id="category"><option value="">전체</option></select>
+        </label>
         <label class="grow">검색
           <input type="search" id="q" placeholder="본문 · 작성자" />
         </label>
@@ -55,6 +58,7 @@
           </select>
         </label>
         <span class="sp"></span>
+        <button id="applyLearning" title="채택한 글들의 반응 수준·단어를 수집 기준에 반영">🎯 채택 반영(수집기 업그레이드)</button>
         <button id="exportPicked" class="primary">채택본 내보내기 (JSON)</button>
       </div>
       <div class="count" id="reviewCount"></div>
