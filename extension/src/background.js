@@ -129,6 +129,17 @@ const normText = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase(
 // 레퍼런스 글을 로컬 수신서버로 보내 슬랙 daily 풀(reference_pool)로 흘려보낸다.
 // (서비스워커 fetch + host_permissions 127.0.0.1 사용 → 페이지 CSP 영향 없음)
 const REF_SERVER = 'http://127.0.0.1:8790/store';
+const REVIEW_SERVER = 'http://127.0.0.1:8790/review';
+function postReview(url, review) {
+  if (!url) return;
+  try {
+    fetch(REVIEW_SERVER, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, review })
+    }).catch(() => {});
+  } catch (_) { /* noop */ }
+}
 function postReference(handle, items) {
   if (!handle || !Array.isArray(items) || !items.length) return;
   try {
@@ -946,13 +957,16 @@ const handlers = {
   /** 검토 상태 지정 — 'pick'(채택) / 'reject'(거부) / null(미검토). 같은 값 누르면 해제. */
   REVIEW_POST: async (msg) => {
     const { posts } = await getAll();
+    let url = null, finalReview = null;
     const next = posts.map((p) => {
       if (p.id !== msg.id) return p;
       const cur = p.review || (p.picked ? 'pick' : null);
       const review = (cur === msg.review) ? null : msg.review;
+      url = p.url; finalReview = review;
       return { ...p, review, picked: review === 'pick' };
     });
     await set({ [KEYS.POSTS]: next });
+    postReview(url, finalReview);   // 슬랙 풀(reference_pool)에도 반영되도록 서버에 전달
     return { ok: true };
   },
 
