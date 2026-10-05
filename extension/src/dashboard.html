@@ -46,7 +46,14 @@
         <label class="grow">검색
           <input type="search" id="q" placeholder="본문 · 작성자" />
         </label>
-        <label class="chk"><input type="checkbox" id="onlyPicked" /> 채택한 것만</label>
+        <label>상태
+          <select id="status">
+            <option value="todo">미검토</option>
+            <option value="pick">채택</option>
+            <option value="reject">거부</option>
+            <option value="all">전체</option>
+          </select>
+        </label>
         <span class="sp"></span>
         <button id="exportPicked" class="primary">채택본 내보내기 (JSON)</button>
       </div>

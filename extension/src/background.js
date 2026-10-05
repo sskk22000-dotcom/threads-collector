@@ -941,6 +941,19 @@ const handlers = {
       p.id === msg.id ? { ...p, picked: msg.picked === undefined ? !p.picked : !!msg.picked } : p);
     await set({ [KEYS.POSTS]: next });
     return { ok: true };
+  },
+
+  /** 검토 상태 지정 — 'pick'(채택) / 'reject'(거부) / null(미검토). 같은 값 누르면 해제. */
+  REVIEW_POST: async (msg) => {
+    const { posts } = await getAll();
+    const next = posts.map((p) => {
+      if (p.id !== msg.id) return p;
+      const cur = p.review || (p.picked ? 'pick' : null);
+      const review = (cur === msg.review) ? null : msg.review;
+      return { ...p, review, picked: review === 'pick' };
+    });
+    await set({ [KEYS.POSTS]: next });
+    return { ok: true };
   }
 };
 

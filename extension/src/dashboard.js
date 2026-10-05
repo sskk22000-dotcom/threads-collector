@@ -7,10 +7,11 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 let state = null;
-const f = { source: 'all', sort: 'reaction', q: '', onlyPicked: false };
+const f = { source: 'all', sort: 'reaction', q: '', status: 'todo' };
 
 const num = (v) => (v === null || v === undefined ? null : v);
 const reaction = (p) => (p.counts?.likes || 0) + (p.counts?.replies || 0) * 3;
+const reviewOf = (p) => p.review || (p.picked ? 'pick' : null);
 
 function kindMap() {
   const m = new Map();
@@ -34,7 +35,9 @@ function filtered() {
   const q = f.q.trim().toLowerCase();
   let list = (state.posts || []).filter((p) => !p.pending && (p.text || '').trim());
   if (f.source !== 'all') list = list.filter((p) => postKind(p, km) === f.source);
-  if (f.onlyPicked) list = list.filter((p) => p.picked);
+  if (f.status === 'todo') list = list.filter((p) => !reviewOf(p));
+  else if (f.status === 'pick') list = list.filter((p) => reviewOf(p) === 'pick');
+  else if (f.status === 'reject') list = list.filter((p) => reviewOf(p) === 'reject');
   if (q) list = list.filter((p) => (`${p.text} ${p.author}`).toLowerCase().includes(q));
 
   const sorters = {
@@ -54,13 +57,21 @@ function metric(label, value) {
 
 function card(p, km) {
   const k = postKind(p, km);
+  const rv = reviewOf(p);
   const when = p.postedAt ? new Date(p.postedAt).toLocaleDateString('ko-KR') : '';
   const img = (p.images || [])[0];
   const badge = k === 'own' ? '<span class="badge own">내 계정</span>'
     : k === 'reference' ? '<span class="badge ref">레퍼런스</span>' : '';
+  // 쓰레드 이미지는 만료/핫링크 차단으로 못 뜰 수 있어, 깨지면 원문 링크로 대체한다.
+  const thumb = img
+    ? `<a class="thumb" href="${esc(p.url)}" target="_blank" rel="noreferrer">
+         <img src="${esc(img)}" loading="lazy" referrerpolicy="no-referrer"
+              onerror="this.remove();this.closest('.thumb').classList.add('broken');this.closest('.thumb').textContent='🖼 원문에서 사진 보기';">
+       </a>`
+    : '';
   return `
-    <article class="card ${p.picked ? 'picked' : ''}">
-      ${img ? `<div class="thumb"><img src="${esc(img)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.closest('.thumb').style.display='none'"></div>` : ''}
+    <article class="card ${rv === 'pick' ? 'picked' : ''} ${rv === 'reject' ? 'rejected' : ''}">
+      ${thumb}
       <div class="main">
         <div class="chead">
           <a class="author" href="${esc(p.authorUrl || ('https://www.threads.com/@' + p.author))}" target="_blank" rel="noreferrer">@${esc(p.author)}</a>
@@ -75,9 +86,10 @@ function card(p, km) {
           ${metric('👁', p.counts?.views)}
         </div>
         <div class="cfoot">
-          <button class="pick ${p.picked ? 'on' : ''}" data-pick="${esc(p.id)}">${p.picked ? '✓ 채택됨' : '채택'}</button>
+          <button class="pick ${rv === 'pick' ? 'on' : ''}" data-rv="pick" data-id="${esc(p.id)}">${rv === 'pick' ? '✓ 채택됨' : '채택'}</button>
+          <button class="reject ${rv === 'reject' ? 'on' : ''}" data-rv="reject" data-id="${esc(p.id)}">${rv === 'reject' ? '✕ 거부됨' : '거부'}</button>
           <a class="open" href="${esc(p.url)}" target="_blank" rel="noreferrer">원문 열기 →</a>
-          <button class="tiny" data-hide="${esc(p.id)}">숨기기</button>
+          <button class="tiny" data-hide="${esc(p.id)}">삭제</button>
         </div>
       </div>
     </article>`;
@@ -86,8 +98,11 @@ function card(p, km) {
 function renderReview() {
   const km = kindMap();
   const list = filtered();
-  const picked = (state.posts || []).filter((p) => p.picked).length;
-  $('#reviewCount').textContent = `${list.length}건 표시 · 채택 ${picked}건 / 전체 수집 ${(state.posts || []).length}건`;
+  const all = state.posts || [];
+  const pick = all.filter((p) => reviewOf(p) === 'pick').length;
+  const rej = all.filter((p) => reviewOf(p) === 'reject').length;
+  const todo = all.filter((p) => !p.pending && (p.text || '').trim() && !reviewOf(p)).length;
+  $('#reviewCount').textContent = `${list.length}건 표시 · ✓채택 ${pick} · ✕거부 ${rej} · 미검토 ${todo} / 전체 ${all.length}건`;
   $('#cards').innerHTML = list.length
     ? list.map((p) => card(p, km)).join('')
     : '<div class="empty">조건에 맞는 글이 없습니다. 수집을 켜고 쓰레드를 둘러보면 이곳에 쌓입니다.</div>';
@@ -183,26 +198,29 @@ $('#collecting').addEventListener('change', async (e) => {
 $('#source').addEventListener('change', (e) => { f.source = e.target.value; renderReview(); });
 $('#sort').addEventListener('change', (e) => { f.sort = e.target.value; renderReview(); });
 $('#q').addEventListener('input', (e) => { f.q = e.target.value; renderReview(); });
-$('#onlyPicked').addEventListener('change', (e) => { f.onlyPicked = e.target.checked; renderReview(); });
+$('#status').addEventListener('change', (e) => { f.status = e.target.value; renderReview(); });
 
 $('#cards').addEventListener('click', async (e) => {
-  const pick = e.target.closest('button[data-pick]');
+  const rv = e.target.closest('button[data-rv]');
   const hide = e.target.closest('button[data-hide]');
-  if (pick) {
-    // 낙관적 반영
-    const p = state.posts.find((x) => x.id === pick.dataset.pick);
-    if (p) p.picked = !p.picked;
+  if (rv) {
+    const p = state.posts.find((x) => x.id === rv.dataset.id);
+    if (p) {   // 낙관적 반영(같은 값 다시 누르면 해제)
+      const cur = reviewOf(p);
+      p.review = (cur === rv.dataset.rv) ? null : rv.dataset.rv;
+      p.picked = p.review === 'pick';
+    }
     renderReview();
-    await send({ type: 'PICK_POST', id: pick.dataset.pick });
+    await send({ type: 'REVIEW_POST', id: rv.dataset.id, review: rv.dataset.rv });
   } else if (hide) {
-    if (!confirm('이 글을 목록에서 지울까요?')) return;
+    if (!confirm('이 글을 완전히 지울까요?')) return;
     await send({ type: 'DELETE_POST', id: hide.dataset.hide });
     await load();
   }
 });
 
 $('#exportPicked').addEventListener('click', () => {
-  const ids = (state.posts || []).filter((p) => p.picked).map((p) => p.id);
+  const ids = (state.posts || []).filter((p) => reviewOf(p) === 'pick').map((p) => p.id);
   if (!ids.length) { alert('채택한 글이 없습니다. 카드의 "채택"을 눌러 골라주세요.'); return; }
   send({ type: 'EXPORT', format: 'json', ids });
 });
