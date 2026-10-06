@@ -98,9 +98,12 @@ export function koreanRatio(text) {
 }
 
 /** 한국어 글로 볼지. 글자가 거의 없는 글(사진만 있는 글 등)은 통과시킨다. */
-export function isKorean(text, minRatio = 0.3) {
+export function isKorean(text, minRatio = 0.1) {
   const s = String(text || '');
   const letters = (s.match(/[가-힣ㄱ-ㅎㅏ-ㅣA-Za-z぀-ヿ一-鿿Ѐ-ӿ؀-ۿ฀-๿]/g) || []).length;
   if (letters < 8) return true;          // 판단할 글자가 부족하면 거르지 않는다
-  return koreanRatio(s) >= minRatio;
+  const korean = (s.match(/[가-힣ㄱ-ㅎ]/g) || []).length;
+  // 한국어가 어느 정도 있으면(외국어가 일부 섞여 있어도) 통과. '외국어만' 인 글만 거른다.
+  if (korean >= 4) return true;
+  return (korean / letters) >= minRatio;
 }
