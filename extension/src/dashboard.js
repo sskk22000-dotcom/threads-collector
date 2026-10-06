@@ -82,10 +82,10 @@ function card(p, km) {
   const badge = k === 'own' ? '<span class="badge own">내 계정</span>'
     : k === 'reference' ? '<span class="badge ref">레퍼런스</span>' : '';
   const catBadge = `<span class="badge cat">${esc(categoryOf(p))}</span>`;
+  // 깨짐 처리는 CSP 때문에 인라인 onerror 가 막히므로 렌더 후 wireThumbs() 에서 JS로 붙인다.
   const thumb = src
     ? `<a class="thumb" href="${esc(p.url)}" target="_blank" rel="noreferrer">
-         <img src="${esc(src)}" loading="lazy" referrerpolicy="no-referrer"
-              onerror="this.remove();this.closest('.thumb').classList.add('broken');this.closest('.thumb').textContent='🖼 원문에서 사진 보기';">
+         <img src="${esc(src)}" loading="lazy" referrerpolicy="no-referrer">
        </a>`
     : '';
   return `
@@ -134,6 +134,23 @@ function renderReview() {
   $('#cards').innerHTML = list.length
     ? list.map((p) => card(p, km)).join('')
     : '<div class="empty">조건에 맞는 글이 없습니다. 수집을 켜고 쓰레드를 둘러보면 이곳에 쌓입니다.</div>';
+  wireThumbs();
+}
+
+/** 못 불러온 썸네일을 '원문에서 사진 보기' 링크 박스로 바꾼다(CSP로 인라인 onerror 불가). */
+function wireThumbs() {
+  for (const a of document.querySelectorAll('.thumb')) {
+    const img = a.querySelector('img');
+    if (!img) continue;
+    const fail = () => {
+      if (a.classList.contains('broken')) return;
+      img.remove();
+      a.classList.add('broken');
+      a.textContent = '🖼 원문에서 사진 보기';
+    };
+    if (img.complete && img.naturalWidth === 0) fail();
+    else img.addEventListener('error', fail, { once: true });
+  }
 }
 
 /* ----------------------------------------------------------- 계정 */
