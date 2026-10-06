@@ -335,6 +335,12 @@ $('#exportPicked').addEventListener('click', () => {
   send({ type: 'EXPORT', format: 'json', ids });
 });
 
+$('#exportAll').addEventListener('click', () => {
+  const n = (state.posts || []).filter((p) => !p.pending).length;
+  if (!confirm(`수집한 글 전체(약 ${n}건)를 JSON으로 내보냅니다.\n저장 후 "했어"라고 알려주시면 폰 검토앱에 올려드려요.`)) return;
+  send({ type: 'EXPORT', format: 'json' });   // ids 없음 = 전체
+});
+
 /* 계정 */
 function flash(msg) { const el = $('#accountError'); if (!msg) { el.classList.add('hidden'); return; }
   el.textContent = msg; el.classList.remove('hidden'); setTimeout(() => el.classList.add('hidden'), 4000); }
