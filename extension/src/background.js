@@ -130,13 +130,15 @@ const normText = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase(
 // (서비스워커 fetch + host_permissions 127.0.0.1 사용 → 페이지 CSP 영향 없음)
 const REF_SERVER = 'http://127.0.0.1:8790/store';
 const REVIEW_SERVER = 'http://127.0.0.1:8790/review';
-function postReview(url, review) {
+function postReview(url, review, post) {
   if (!url) return;
   try {
+    const body = { url, review };
+    if (review === 'pick' && post) body.post = post;   // 채택이면 원본(사진 포함) 같이 보냄
     fetch(REVIEW_SERVER, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, review })
+      body: JSON.stringify(body)
     }).catch(() => {});
   } catch (_) { /* noop */ }
 }
@@ -288,6 +290,8 @@ async function handlePosts(incoming) {
   const cand = state.stats.candidateAuthors = state.stats.candidateAuthors || {};
   const newlyAdded = [];
   const refOut = [];   // 레퍼런스 계정에서 담은 글 → 로컬 서버로 전송(슬랙 풀용)
+  const rejWords = state.stats.rejectedKeywords || [];   // 거부 학습 단어(싫어하는 주제)
+  const pickWords = state.stats.pickedKeywords || [];
 
   const bump = (reason) => {
     state.stats.skipped = state.stats.skipped || {};
@@ -322,14 +326,23 @@ async function handlePosts(incoming) {
     state.stats.sinceSuggest += 1;
     corpus.push(post.text);
 
-    // 외국어 글은 여기서 걸러낸다 (내 계정 / 전체수집 레퍼런스 계정은 예외)
     const account = findAccount(post.author, state.accounts);
     const isOwn = Boolean(account && accountKind(account) === 'own');
     // 내 계정은 무조건 전부, 레퍼런스는 전체수집(collectAll)일 때 전부.
     const isReference = Boolean(account && (isOwn || account.collectAll));
-    if (settings.koreanOnly && !isReference && !isKorean(post.text, settings.koreanMinRatio)) {
+    // 외국어 글은 전 계정에서 걸러낸다(사용자 요청: 외국어 수집 안 함).
+    if (settings.koreanOnly && !isKorean(post.text, settings.koreanMinRatio)) {
       state.stats.skippedForeign = (state.stats.skippedForeign || 0) + 1;
       continue;
+    }
+
+    // 거부 학습 반영 — 미등록(피드/검색) 글이 '싫어하는 단어'를 담고 '좋아하는 단어'는 없으면 건너뛴다
+    if (!account && rejWords.length) {
+      const t = post.text || '';
+      if (rejWords.some((w) => t.includes(w)) && !pickWords.some((w) => t.includes(w))) {
+        bump('거부학습 제외');
+        continue;
+      }
     }
 
     const { hits, groups } = matchKeywords(post.text, state.groups, { onlyApproved: true });
@@ -957,16 +970,22 @@ const handlers = {
   /** 검토 상태 지정 — 'pick'(채택) / 'reject'(거부) / null(미검토). 같은 값 누르면 해제. */
   REVIEW_POST: async (msg) => {
     const { posts } = await getAll();
-    let url = null, finalReview = null;
+    let url = null, finalReview = null, rec = null;
     const next = posts.map((p) => {
       if (p.id !== msg.id) return p;
       const cur = p.review || (p.picked ? 'pick' : null);
       const review = (cur === msg.review) ? null : msg.review;
       url = p.url; finalReview = review;
+      rec = {
+        account: p.account || p.author, author: p.author, url: p.url,
+        body: p.text, postedAt: p.postedAt || null, thumb: p.thumb || null,
+        like: p.counts?.likes ?? null, reply: p.counts?.replies ?? null,
+        repost: p.counts?.reposts ?? null, views: p.counts?.views ?? null
+      };
       return { ...p, review, picked: review === 'pick' };
     });
     await set({ [KEYS.POSTS]: next });
-    postReview(url, finalReview);   // 슬랙 풀(reference_pool)에도 반영되도록 서버에 전달
+    postReview(url, finalReview, rec);   // 슬랙 풀 + 캡쳐 아카이브에 반영되도록 서버에 전달
     return { ok: true };
   },
 
@@ -977,39 +996,54 @@ const handlers = {
   APPLY_PICKS_LEARNING: async () => {
     const { posts, stats, settings } = await getAll();
     const picked = posts.filter((p) => p.review === 'pick' || p.picked);
-    if (picked.length < 3) return { error: '채택한 글이 너무 적어요. 최소 3개는 채택해주세요.' };
-
-    let sl = 0, sr = 0, sp = 0, n = 0;
-    for (const p of picked) {
-      const c = p.counts || {};
-      if (c.likes != null || c.replies != null) {
-        sl += c.likes || 0; sr += c.replies || 0; sp += c.reposts || 0; n += 1;
-      }
+    const rejected = posts.filter((p) => p.review === 'reject');
+    if (picked.length < 3 && rejected.length < 3) {
+      return { error: '채택/거부가 너무 적어요. 합쳐서 3개 이상 해주세요.' };
     }
-    n = n || picked.length;
-    const nn = Math.max(n, Number(settings.adaptiveMinSamples) || 6);
-    // bench 의 평균(sum/n)이 채택 글 평균이 되도록 맞춘다 → '평균 이상' = '내 취향 이상'
-    stats.bench = {
-      n: nn,
-      likes: Math.round((sl / n) * nn),
-      replies: Math.round((sr / n) * nn),
-      reposts: Math.round((sp / n) * nn)
-    };
 
-    const words = {};
-    for (const p of picked) {
-      for (const w of String(p.text || '').split(/[^가-힣a-zA-Z0-9]+/)) {
-        if (w.length >= 2) words[w] = (words[w] || 0) + 1;
+    let avgLike = null, avgReply = null;
+    if (picked.length) {
+      let sl = 0, sr = 0, sp = 0, n = 0;
+      for (const p of picked) {
+        const c = p.counts || {};
+        if (c.likes != null || c.replies != null) { sl += c.likes || 0; sr += c.replies || 0; sp += c.reposts || 0; n += 1; }
       }
+      n = n || picked.length;
+      const nn = Math.max(n, Number(settings.adaptiveMinSamples) || 6);
+      stats.bench = { n: nn, likes: Math.round((sl / n) * nn), replies: Math.round((sr / n) * nn), reposts: Math.round((sp / n) * nn) };
+      avgLike = Math.round(sl / n); avgReply = Math.round(sr / n);
     }
-    const STOP = new Set(['그리고', '그래서', '진짜', '너무', '하는', '해서', '있는', '없는', '그냥', '이거', '저도', '우리', '제가', '근데']);
-    const top = Object.entries(words)
-      .filter(([w]) => !STOP.has(w))
-      .sort((a, b) => b[1] - a[1]).slice(0, 12).map(([w]) => w);
-    stats.pickedKeywords = top;
+
+    const STOP = new Set(['그리고', '그래서', '진짜', '너무', '하는', '해서', '있는', '없는', '그냥', '이거', '저도', '우리', '제가', '근데', '그게', '이게', '정말', '너무너무', '오늘', '지금']);
+    const freq = (arr) => { const w = {}; for (const p of arr) for (const t of String(p.text || '').split(/[^가-힣a-zA-Z0-9]+/)) if (t.length >= 2 && !STOP.has(t)) w[t] = (w[t] || 0) + 1; return w; };
+    const pw = freq(picked), rw = freq(rejected);
+    const pickTop = Object.entries(pw).sort((a, b) => b[1] - a[1]).slice(0, 15).map(([w]) => w);
+    // 거부 단어 = 거부에 많고 채택엔 없는 단어(싫어하는 주제) → 피드 수집에서 제외하는 데 쓴다
+    const rejTop = Object.entries(rw).filter(([w]) => !pw[w]).sort((a, b) => b[1] - a[1]).slice(0, 20).map(([w]) => w);
+    stats.pickedKeywords = pickTop;
+    stats.rejectedKeywords = rejTop;
 
     await set({ [KEYS.STATS]: stats });
-    return { ok: true, count: picked.length, avgLike: Math.round(sl / n), avgReply: Math.round(sr / n), top };
+    return { ok: true, pickCount: picked.length, rejectCount: rejected.length, avgLike, avgReply, pickTop, rejTop };
+  },
+
+  /** 반응 낮은 글 정리 — 좋아요<minLikes 또는 댓글<minReplies 인 글 삭제(채택/확인중 글은 남김). */
+  PRUNE_REACTION: async (msg) => {
+    const { posts } = await getAll();
+    const minL = Number(msg.minLikes) || 0;
+    const minR = Number(msg.minReplies) || 0;
+    const kept = posts.filter((p) => {
+      if (p.pending) return true;
+      if (p.review === 'pick' || p.picked) return true;      // 채택한 건 남김
+      const l = p.counts?.likes, r = p.counts?.replies;
+      if (l != null && l < minL) return false;               // 좋아요 미달 → 삭제
+      if (r != null && r < minR) return false;               // 댓글 미달 → 삭제
+      return true;
+    });
+    const removed = posts.length - kept.length;
+    await set({ [KEYS.POSTS]: kept });
+    await updateBadge(kept.filter((p) => !p.pending).length);
+    return { removed, kept: kept.length };
   }
 };
 

@@ -90,6 +90,10 @@ function card(p, km) {
     : '';
   return `
     <article class="card ${rv === 'pick' ? 'picked' : ''} ${rv === 'reject' ? 'rejected' : ''}">
+      <div class="reviewbtns">
+        <button class="pick ${rv === 'pick' ? 'on' : ''}" data-rv="pick" data-id="${esc(p.id)}">${rv === 'pick' ? '✓ 채택됨' : '채택'}</button>
+        <button class="reject ${rv === 'reject' ? 'on' : ''}" data-rv="reject" data-id="${esc(p.id)}">${rv === 'reject' ? '✕ 거부됨' : '거부'}</button>
+      </div>
       ${thumb}
       <div class="main">
         <div class="chead">
@@ -105,8 +109,6 @@ function card(p, km) {
           ${metric('👁', p.counts?.views)}
         </div>
         <div class="cfoot">
-          <button class="pick ${rv === 'pick' ? 'on' : ''}" data-rv="pick" data-id="${esc(p.id)}">${rv === 'pick' ? '✓ 채택됨' : '채택'}</button>
-          <button class="reject ${rv === 'reject' ? 'on' : ''}" data-rv="reject" data-id="${esc(p.id)}">${rv === 'reject' ? '✕ 거부됨' : '거부'}</button>
           <a class="open" href="${esc(p.url)}" target="_blank" rel="noreferrer">원문 열기 →</a>
           <button class="tiny" data-hide="${esc(p.id)}">삭제</button>
         </div>
@@ -249,9 +251,18 @@ $('#category').addEventListener('change', (e) => { f.category = e.target.value; 
 $('#applyLearning').addEventListener('click', async () => {
   const r = await send({ type: 'APPLY_PICKS_LEARNING' });
   if (r?.error) { alert(r.error); return; }
-  alert(`채택 ${r.count}건을 수집 기준에 반영했어요.\n`
-    + `→ 앞으로 "평균 이상"의 기준: ❤️ ${r.avgLike} · 💬 ${r.avgReply} 수준\n`
-    + (r.top?.length ? `→ 채택 글에 자주 나온 단어: ${r.top.join(', ')}` : ''));
+  let msg = `채택 ${r.pickCount}건 · 거부 ${r.rejectCount}건을 수집 로직에 반영했어요.\n`;
+  if (r.avgLike != null) msg += `→ 수집 기준(이 이상): ❤️ ${r.avgLike} · 💬 ${r.avgReply}\n`;
+  if (r.pickTop?.length) msg += `→ 선호 단어: ${r.pickTop.slice(0, 10).join(', ')}\n`;
+  if (r.rejTop?.length) msg += `→ 제외 단어(피드에서 안 모음): ${r.rejTop.slice(0, 10).join(', ')}`;
+  alert(msg);
+  await load();
+});
+
+$('#pruneLow').addEventListener('click', async () => {
+  if (!confirm('좋아요 100 미만 또는 댓글 10 미만인 글을 삭제할까요?\n(채택한 글·확인 중인 글은 남습니다)')) return;
+  const r = await send({ type: 'PRUNE_REACTION', minLikes: 100, minReplies: 10 });
+  alert(`${r.removed}건 삭제, ${r.kept}건 남음.`);
   await load();
 });
 
