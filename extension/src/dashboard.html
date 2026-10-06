@@ -18,6 +18,7 @@
     </div>
     <nav class="wrap tabs">
       <button class="tab active" data-tab="review">📋 글 검토·채택</button>
+      <button class="tab" data-tab="picked">📌 채택된 글</button>
       <button class="tab" data-tab="accounts">👤 계정</button>
       <button class="tab" data-tab="settings">⚙️ 설정</button>
     </nav>
@@ -66,6 +67,24 @@
       </div>
       <div class="count" id="reviewCount"></div>
       <div id="cards"></div>
+    </section>
+
+    <!-- 채택된 글 -->
+    <section class="panel" data-panel="picked">
+      <p class="hint">내가 채택한 글 모음 — 원문 전체와 사진까지. 거부 버튼을 누르면 채택이 풀립니다.</p>
+      <div class="toolbar" style="margin-bottom:12px">
+        <label>정렬
+          <select id="pickedSort">
+            <option value="reaction">반응 높은 순</option>
+            <option value="recent">최근 채택 순</option>
+          </select>
+        </label>
+        <label>카테고리 <select id="pickedCat"><option value="">전체</option></select></label>
+        <span class="sp"></span>
+        <button id="exportPicked2" class="primary">채택본 내보내기 (JSON)</button>
+      </div>
+      <div class="count" id="pickedCount"></div>
+      <div id="pickedCards"></div>
     </section>
 
     <!-- 계정 -->

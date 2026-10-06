@@ -8,6 +8,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
 
 let state = null;
 const f = { source: 'all', sort: 'reaction', q: '', status: 'todo', category: '' };
+const pf = { sort: 'reaction', cat: '' };
 
 const num = (v) => (v === null || v === undefined ? null : v);
 const reaction = (p) => (p.counts?.likes || 0) + (p.counts?.replies || 0) * 3;
@@ -110,6 +111,8 @@ function card(p, km) {
         </div>
         <div class="cfoot">
           <a class="open" href="${esc(p.url)}" target="_blank" rel="noreferrer">원문 열기 →</a>
+          ${p.author && !km.has(String(p.account || p.author || '').toLowerCase())
+            ? `<button class="tiny" data-addref="${esc(p.author)}" title="이 계정을 레퍼런스로 추가">+ 레퍼런스 추가</button>` : ''}
           <button class="tiny" data-hide="${esc(p.id)}">삭제</button>
         </div>
       </div>
@@ -153,6 +156,29 @@ function wireThumbs() {
     if (img.complete && img.naturalWidth === 0) fail();
     else img.addEventListener('error', fail, { once: true });
   }
+}
+
+/* ----------------------------------------------------------- 채택된 글 */
+
+function renderPicked() {
+  const km = kindMap();
+  let list = (state.posts || []).filter((p) => reviewOf(p) === 'pick');
+  if (pf.cat) list = list.filter((p) => categoryOf(p) === pf.cat);
+  list.sort(pf.sort === 'recent'
+    ? (a, b) => String(b.collectedAt).localeCompare(String(a.collectedAt))
+    : (a, b) => reaction(b) - reaction(a));
+  $('#pickedCount').textContent = `채택한 글 ${list.length}건`;
+  // 카테고리 옵션
+  const cc = {};
+  for (const p of (state.posts || [])) if (reviewOf(p) === 'pick') { const c = categoryOf(p); cc[c] = (cc[c] || 0) + 1; }
+  const cats = Object.keys(cc).sort((a, b) => cc[b] - cc[a]);
+  const cur = $('#pickedCat').value;
+  $('#pickedCat').innerHTML = '<option value="">전체</option>' + cats.map((c) => `<option value="${esc(c)}">${esc(c)} (${cc[c]})</option>`).join('');
+  $('#pickedCat').value = cats.includes(cur) ? cur : '';
+  $('#pickedCards').innerHTML = list.length
+    ? list.map((p) => card(p, km)).join('')
+    : '<div class="empty">아직 채택한 글이 없어요. 검토 탭에서 좋은 글에 "채택"을 눌러보세요.</div>';
+  wireThumbs();
 }
 
 /* ----------------------------------------------------------- 계정 */
@@ -215,7 +241,7 @@ function renderHeader() {
     + (st.lastAt ? ` · 최근 ${new Date(st.lastAt).toLocaleTimeString('ko-KR')}` : '');
 }
 
-function renderAll() { renderHeader(); renderReview(); renderAccounts(); renderSettings(); }
+function renderAll() { renderHeader(); renderReview(); renderPicked(); renderAccounts(); renderSettings(); }
 
 async function load() {
   let next;
@@ -268,9 +294,10 @@ $('#pruneLow').addEventListener('click', async () => {
   await load();
 });
 
-$('#cards').addEventListener('click', async (e) => {
+async function onCardsClick(e) {
   const rv = e.target.closest('button[data-rv]');
   const hide = e.target.closest('button[data-hide]');
+  const addref = e.target.closest('button[data-addref]');
   if (rv) {
     const p = state.posts.find((x) => x.id === rv.dataset.id);
     if (p) {   // 낙관적 반영(같은 값 다시 누르면 해제)
@@ -278,13 +305,28 @@ $('#cards').addEventListener('click', async (e) => {
       p.review = (cur === rv.dataset.rv) ? null : rv.dataset.rv;
       p.picked = p.review === 'pick';
     }
-    renderReview();
+    renderReview(); renderPicked();
     await send({ type: 'REVIEW_POST', id: rv.dataset.id, review: rv.dataset.rv });
+  } else if (addref) {
+    const r = await send({ type: 'ADD_ACCOUNT', username: addref.dataset.addref, kind: 'reference' });
+    if (r && r.error) alert(r.error);
+    else if (r && r.duplicate) alert('이미 등록된 계정입니다.');
+    else alert('@' + addref.dataset.addref + ' 를 레퍼런스 계정으로 추가했어요.');
+    await load();
   } else if (hide) {
     if (!confirm('이 글을 완전히 지울까요?')) return;
     await send({ type: 'DELETE_POST', id: hide.dataset.hide });
     await load();
   }
+}
+$('#cards').addEventListener('click', onCardsClick);
+$('#pickedCards').addEventListener('click', onCardsClick);
+$('#pickedSort').addEventListener('change', (e) => { pf.sort = e.target.value; renderPicked(); });
+$('#pickedCat').addEventListener('change', (e) => { pf.cat = e.target.value; renderPicked(); });
+$('#exportPicked2').addEventListener('click', () => {
+  const ids = (state.posts || []).filter((p) => reviewOf(p) === 'pick').map((p) => p.id);
+  if (!ids.length) { alert('채택한 글이 없습니다.'); return; }
+  send({ type: 'EXPORT', format: 'json', ids });
 });
 
 $('#exportPicked').addEventListener('click', () => {
