@@ -260,8 +260,10 @@ $('#applyLearning').addEventListener('click', async () => {
 });
 
 $('#pruneLow').addEventListener('click', async () => {
-  if (!confirm('좋아요 100 미만 또는 댓글 10 미만인 글을 삭제할까요?\n(채택한 글·확인 중인 글은 남습니다)')) return;
-  const r = await send({ type: 'PRUNE_REACTION', minLikes: 100, minReplies: 10 });
+  const minLikes = Math.max(0, Number($('#pruneMinLikes').value) || 0);
+  const minReplies = Math.max(0, Number($('#pruneMinReplies').value) || 0);
+  if (!confirm(`좋아요 ${minLikes} 미만 또는 댓글 ${minReplies} 미만인 글을 삭제할까요?\n(채택한 글·확인 중인 글은 남습니다)`)) return;
+  const r = await send({ type: 'PRUNE_REACTION', minLikes, minReplies });
   alert(`${r.removed}건 삭제, ${r.kept}건 남음.`);
   await load();
 });
