@@ -96,11 +96,33 @@ async function applyRecommendedTuning() {
   await set({ [KEYS.SETTINGS]: tuned, tuningVersion: TUNING_VERSION });
 }
 
+// 업데이트/로드 시 지금까지 수집한 글 전체를 로컬 서버로 한 번 밀어 폰 앱과 맞춘다.
+// (서버가 url/code로 중복 제거하므로 여러 번 돌아도 안전)
+async function bulkSyncToServer() {
+  try {
+    const posts = (await chrome.storage.local.get(KEYS.POSTS))[KEYS.POSTS] || [];
+    if (!posts.length) return;
+    const byAcct = {};
+    for (const p of posts) {
+      if (p.pending || !(p.text || '').trim()) continue;
+      const h = normalizeHandle(p.author) || p.author || 'unknown';
+      (byAcct[h] = byAcct[h] || []).push({
+        account: h, body: p.text,
+        like: p.counts?.likes ?? null, reply: p.counts?.replies ?? null, repost: p.counts?.reposts ?? null,
+        share: null, url: p.url, date: p.postedAt || null, thumb: ''
+      });
+    }
+    for (const [h, items] of Object.entries(byAcct)) postReference(h, items);
+  } catch (_) { /* 서버 꺼져 있어도 수집엔 영향 없음 */ }
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   ensureSeeded();
   ensureAccountsSeeded();
   applyRecommendedTuning();
+  setTimeout(bulkSyncToServer, 3000);
 });
+chrome.runtime.onStartup?.addListener?.(() => { setTimeout(bulkSyncToServer, 3000); });
 chrome.runtime.onStartup?.addListener?.(() => {
   ensureAccountsSeeded();
   applyRecommendedTuning();
