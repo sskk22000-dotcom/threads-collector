@@ -132,12 +132,37 @@ async function applyServerPrefs() {
     await set({ [KEYS.STATS]: stats, prefsAppliedAt: prefs.updatedAt });
   } catch (_) { /* 서버 꺼져 있어도 무시 */ }
 }
+// 폰에서 지정한 채택/거부(reviews.json)를 가져와 대시보드 글에도 그대로 '채택/거부'로 표시한다.
+// (폰에서 결정한 것만 덮어쓰고, 미지정은 건드리지 않아 PC에서 한 채택이 지워지지 않음)
+async function applyServerReviews() {
+  try {
+    const r = await fetch('http://127.0.0.1:8790/reviews');
+    if (!r.ok) return;
+    const reviews = await r.json();   // { 글url: 'pick' | 'reject', ... }
+    if (!reviews || typeof reviews !== 'object') return;
+    const { posts } = await getAll();
+    if (!Array.isArray(posts) || !posts.length) return;
+    let changed = false;
+    const next = posts.map((p) => {
+      if (!p.url) return p;
+      const rv = reviews[p.url];
+      const cur = p.review || (p.picked ? 'pick' : null);
+      if ((rv === 'pick' || rv === 'reject') && cur !== rv) {
+        changed = true;
+        return { ...p, review: rv, picked: rv === 'pick' };
+      }
+      return p;
+    });
+    if (changed) await set({ [KEYS.POSTS]: next });
+  } catch (_) { /* 서버 꺼져 있어도 무시 */ }
+}
 let lastPrefsFetch = 0;
 function maybeFetchPrefs() {
   const now = Date.now();
   if (now - lastPrefsFetch < 600000) return;   // 10분마다
   lastPrefsFetch = now;
   applyServerPrefs();
+  applyServerReviews();   // 폰 채택/거부를 대시보드에도 반영
 }
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -146,8 +171,9 @@ chrome.runtime.onInstalled.addListener(() => {
   applyRecommendedTuning();
   setTimeout(bulkSyncToServer, 3000);
   setTimeout(applyServerPrefs, 5000);
+  setTimeout(applyServerReviews, 6000);
 });
-chrome.runtime.onStartup?.addListener?.(() => { setTimeout(bulkSyncToServer, 3000); setTimeout(applyServerPrefs, 5000); });
+chrome.runtime.onStartup?.addListener?.(() => { setTimeout(bulkSyncToServer, 3000); setTimeout(applyServerPrefs, 5000); setTimeout(applyServerReviews, 6000); });
 chrome.runtime.onStartup?.addListener?.(() => {
   ensureAccountsSeeded();
   applyRecommendedTuning();
