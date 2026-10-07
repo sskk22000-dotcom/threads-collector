@@ -84,8 +84,7 @@ function card(p) {
   const extra = (p.images || []).length - images.length;
   const thumbs = images.length
     ? `<div class="thumbs">
-         ${images.map((src) => `<img src="${esc(src)}" alt="" loading="lazy" referrerpolicy="no-referrer"
-              onerror="this.style.display='none'" />`).join('')}
+         ${images.map((src) => `<img class="rthumb" src="${esc(src)}" alt="" loading="lazy" referrerpolicy="no-referrer" />`).join('')}
          ${extra > 0 ? `<span class="more">+${extra}</span>` : ''}
        </div>`
     : '';
@@ -190,6 +189,13 @@ function render() {
     : sellerMode
       ? '<div class="empty">아직 구매 문의가 달린 판매자 글이 없습니다.<br>쓰레드에서 “어디서 사” 같은 검색어로 검색한 뒤 스크롤해 보세요.</div>'
       : '<div class="empty">조건에 맞는 글이 없습니다. 위 필터를 낮춰보세요.</div>');
+
+  // 못 불러온 썸네일 숨김 — 인라인 onerror 는 CSP로 막히므로 JS로 붙인다.
+  for (const img of document.querySelectorAll('#list img.rthumb')) {
+    const hide = () => { img.style.display = 'none'; };
+    if (img.complete && img.naturalWidth === 0) hide();
+    else img.addEventListener('error', hide, { once: true });
+  }
 
   const drop = $('#dropViews');
   if (drop) drop.addEventListener('click', () => patch({ minViews: 0 }));
