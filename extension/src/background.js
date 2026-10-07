@@ -116,13 +116,38 @@ async function bulkSyncToServer() {
   } catch (_) { /* 서버 꺼져 있어도 수집엔 영향 없음 */ }
 }
 
+// 폰에서 채택/거부한 피드백(prefs.json)을 로컬 서버에서 가져와 수집 기준(bench)·선호/제외 단어에 반영.
+async function applyServerPrefs() {
+  try {
+    const r = await fetch('http://127.0.0.1:8790/prefs');
+    if (!r.ok) return;
+    const prefs = await r.json();
+    if (!prefs || !prefs.updatedAt) return;
+    const raw = await chrome.storage.local.get([KEYS.STATS, 'prefsAppliedAt']);
+    if (raw.prefsAppliedAt === prefs.updatedAt) return;   // 이미 반영됨
+    const stats = { ...DEFAULT_STATS, ...(raw[KEYS.STATS] || {}) };
+    if (prefs.bench) stats.bench = prefs.bench;
+    if (Array.isArray(prefs.pickedKeywords)) stats.pickedKeywords = prefs.pickedKeywords;
+    if (Array.isArray(prefs.rejectedKeywords)) stats.rejectedKeywords = prefs.rejectedKeywords;
+    await set({ [KEYS.STATS]: stats, prefsAppliedAt: prefs.updatedAt });
+  } catch (_) { /* 서버 꺼져 있어도 무시 */ }
+}
+let lastPrefsFetch = 0;
+function maybeFetchPrefs() {
+  const now = Date.now();
+  if (now - lastPrefsFetch < 600000) return;   // 10분마다
+  lastPrefsFetch = now;
+  applyServerPrefs();
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   ensureSeeded();
   ensureAccountsSeeded();
   applyRecommendedTuning();
   setTimeout(bulkSyncToServer, 3000);
+  setTimeout(applyServerPrefs, 5000);
 });
-chrome.runtime.onStartup?.addListener?.(() => { setTimeout(bulkSyncToServer, 3000); });
+chrome.runtime.onStartup?.addListener?.(() => { setTimeout(bulkSyncToServer, 3000); setTimeout(applyServerPrefs, 5000); });
 chrome.runtime.onStartup?.addListener?.(() => {
   ensureAccountsSeeded();
   applyRecommendedTuning();
@@ -298,6 +323,7 @@ function ensureParent(posts, byId, parentId, parentUrl, seen, settings) {
 async function handlePosts(incoming) {
   const state = await getAll();
   if (!state.settings.collecting) return { matched: [] };
+  maybeFetchPrefs();   // 폰 채택/거부 피드백을 주기적으로 수집 기준에 반영
 
   const settings = state.settings;
   const bench = state.stats.bench = state.stats.bench || { n: 0, likes: 0, replies: 0, reposts: 0 };
