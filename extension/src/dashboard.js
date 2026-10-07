@@ -335,10 +335,12 @@ $('#exportPicked').addEventListener('click', () => {
   send({ type: 'EXPORT', format: 'json', ids });
 });
 
-$('#exportAll').addEventListener('click', () => {
+$('#exportAll').addEventListener('click', async () => {
   const n = (state.posts || []).filter((p) => !p.pending).length;
-  if (!confirm(`수집한 글 전체(약 ${n}건)를 JSON으로 내보냅니다.\n저장 후 "했어"라고 알려주시면 폰 검토앱에 올려드려요.`)) return;
-  send({ type: 'EXPORT', format: 'json' });   // ids 없음 = 전체
+  if (!confirm(`수집한 글 전체(약 ${n}건)를 폰 검토앱으로 보냅니다.\n(로컬 서버로 전송 → 다음 동기화 때 폰 앱에 올라갑니다)\n계속할까요?`)) return;
+  const r = await send({ type: 'SYNC_ALL_TO_SERVER' });
+  if (r && r.ok) alert(`서버로 ${r.count}건 전송했어요.\n클로드에게 "동기화해줘" 하면 폰 앱에 바로 올라가고, 안 해도 다음 자동 동기화(9·13·18·22시) 때 올라갑니다.`);
+  else alert('전송 실패 — 로컬 수집 서버가 꺼져 있을 수 있어요.');
 });
 
 /* 계정 */

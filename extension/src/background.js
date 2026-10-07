@@ -458,17 +458,16 @@ async function handlePosts(incoming) {
     byId.set(post.id, record);
     state.stats.matched += 1;
 
-    // 레퍼런스 계정에서 담은 글은 슬랙 풀로 보내기 위해 모아둔다
-    if (account && accountKind(account) === 'reference') {
-      refOut.push({
-        account: normalizeHandle(post.author),
-        body: post.text,
-        like: counts.likes, reply: counts.replies, repost: counts.reposts,
-        share: null,
-        url: record.url,
-        date: post.postedAt || null
-      });
-    }
+    // 모든 수집글을 서버로 보낸다(폰 검토앱 동기화 + 레퍼런스는 슬랙 풀).
+    refOut.push({
+      account: normalizeHandle(post.author) || post.author || '',
+      body: post.text,
+      like: counts.likes, reply: counts.replies, repost: counts.reposts,
+      share: null,
+      url: record.url,
+      date: post.postedAt || null,
+      thumb: record.thumb || ''
+    });
   }
 
   // 조회수가 안 잡혔는데 댓글이 많이 달린 글은 나중에 상세 페이지로 확인한다
@@ -956,6 +955,25 @@ const handlers = {
     await set({ [KEYS.POSTS]: next });
     await updateBadge(next.length);
     return { ok: true };
+  },
+
+  /** 지금까지 수집한 글 전체를 로컬 서버로 올린다(폰 검토앱 초기 동기화용). */
+  SYNC_ALL_TO_SERVER: async () => {
+    const { posts } = await getAll();
+    const byAcct = {};
+    let count = 0;
+    for (const p of posts) {
+      if (p.pending || !(p.text || '').trim()) continue;
+      const h = normalizeHandle(p.author) || p.author || 'unknown';
+      (byAcct[h] = byAcct[h] || []).push({
+        account: h, body: p.text,
+        like: p.counts?.likes ?? null, reply: p.counts?.replies ?? null, repost: p.counts?.reposts ?? null,
+        share: null, url: p.url, date: p.postedAt || null, thumb: ''   // 용량 위해 썸네일 제외(원문 링크로 봄)
+      });
+      count += 1;
+    }
+    for (const [h, items] of Object.entries(byAcct)) postReference(h, items);
+    return { ok: true, count, accounts: Object.keys(byAcct).length };
   },
 
   /** 글 '채택' 토글 — 괜찮다고 고른 글에 표시를 남긴다. */
