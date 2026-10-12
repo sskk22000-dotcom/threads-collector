@@ -91,7 +91,8 @@ async function applyRecommendedTuning() {
     // 반응 좋은 글만 자동 수집 — 조회 1만~3만 평균 학습 기준
     adaptiveGate: true,
     adaptiveViewMin: 10000,
-    adaptiveViewMax: 30000
+    adaptiveViewMax: 30000,
+    topicGate: true                 // 주제 필터: 음식·장사 주제(+채택 학습 단어) 글만 수집
   };
   await set({ [KEYS.SETTINGS]: tuned, tuningVersion: TUNING_VERSION });
 }
@@ -346,6 +347,18 @@ function ensureParent(posts, byId, parentId, parentUrl, seen, settings) {
   return parent;
 }
 
+// 주제어(반찬뜰 도메인) — 피드/검색 글이 '음식·장사' 주제에 맞는지 판별하는 씨앗 단어.
+//  채택 학습 단어(pickedKeywords)와 함께 쓰여, 반응만 높고 주제가 엉뚱한 바이럴 글을 걸러낸다.
+const ONTOPIC_SEED = [
+  // 음식/반찬
+  '반찬','김치','곰탕','사골','육수','설렁탕','국밥','밀키트','간편식','집밥','국산','국내산','음식','요리','레시피','먹방','맛집',
+  '돈까스','카츠','청국장','된장','고추장','젓갈','장아찌','나물','무침','닭발','닭강정','족발','보쌈','갈비','곱창','수육','불고기','삼겹',
+  '떡','빵','쿠키','케이크','디저트','베이커리','카레','떡볶이','순대','우동','라면','김밥','튀김','한우','수산','건어물','수제','젤리','과자','음료','커피','카페','라떼',
+  // 장사/자영업/커머스
+  '자영업','소상공인','사장님','장사','매장','가게','식당','창업','배달','택배','배송','주문','단골','손님','재구매','완판',
+  '후기','리뷰','입점','스마트스토어','쿠팡','네이버','컬리','당근','판매','매출','특가','할인','무료배송','포장','발송','구매','단골손님','장사가','가격'
+];
+
 async function handlePosts(incoming) {
   const state = await getAll();
   if (!state.settings.collecting) return { matched: [] };
@@ -417,6 +430,14 @@ async function handlePosts(incoming) {
         bump('거부학습 제외');
         continue;
       }
+    }
+
+    // 주제 필터 — 피드/검색 글은 '채택한 글의 주제(음식·장사 + 채택 학습 단어)'에 맞을 때만 수집.
+    //  반응만 높고 주제가 엉뚱한 바이럴 글(외도·사건·논쟁 등)을 차단한다. 등록 계정(내 계정·레퍼런스)은 그대로 둔다.
+    if (!account && settings.topicGate !== false) {
+      const t = post.text || '';
+      const onTopic = ONTOPIC_SEED.some((w) => t.includes(w)) || pickWords.some((w) => t.includes(w));
+      if (!onTopic) { bump('주제 불일치'); continue; }
     }
 
     const { hits, groups } = matchKeywords(post.text, state.groups, { onlyApproved: true });
