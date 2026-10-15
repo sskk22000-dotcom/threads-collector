@@ -157,22 +157,32 @@ async function applyServerReviews() {
     if (changed) await set({ [KEYS.POSTS]: next });
   } catch (_) { /* 서버 꺼져 있어도 무시 */ }
 }
-// 폰에서 추가한 레퍼런스 계정(/refaccounts)을 가져와 수집 대상(레퍼런스 계정)으로 등록한다.
+// 폰에서 관리하는 레퍼런스 계정(/refaccounts → {add, remove})을 수집 대상에 반영한다.
+//  add: 레퍼런스 계정으로 등록(없으면 추가) · remove: 수집 대상에서 제거(내 계정은 건드리지 않음)
 async function applyServerRefAccounts() {
   try {
     const r = await fetch('http://127.0.0.1:8790/refaccounts');
     if (!r.ok) return;
-    const handles = await r.json();   // ["uncle_woo_curry", ...]
-    if (!Array.isArray(handles) || !handles.length) return;
+    const data = await r.json();
+    const add = Array.isArray(data) ? data : (data && data.add) || [];      // 구버전(배열)도 호환
+    const remove = (data && data.remove) || [];
+    const addSet = new Set(add.map(normalizeHandle).filter(Boolean));
+    const remSet = new Set(remove.map(normalizeHandle).filter(Boolean));
     const raw = await chrome.storage.local.get([KEYS.ACCOUNTS]);
-    const accounts = raw[KEYS.ACCOUNTS] || [];
+    let accounts = raw[KEYS.ACCOUNTS] || [];
     const have = new Set(accounts.map((a) => normalizeHandle(a.username)));
-    let added = 0;
-    for (const h of handles) {
-      const nh = normalizeHandle(h);
-      if (nh && !have.has(nh)) { accounts.push(makeSeedAccount(nh, 'reference')); have.add(nh); added += 1; }
+    let changed = false;
+    // 삭제 — 내 계정(own)은 제외하고 목록에서 뺀다
+    const kept = accounts.filter((a) => {
+      if (remSet.has(normalizeHandle(a.username)) && accountKind(a) !== 'own') { changed = true; return false; }
+      return true;
+    });
+    accounts = kept;
+    // 추가 — 없으면 레퍼런스로 등록
+    for (const nh of addSet) {
+      if (!have.has(nh)) { accounts.push(makeSeedAccount(nh, 'reference')); have.add(nh); changed = true; }
     }
-    if (added) await set({ [KEYS.ACCOUNTS]: accounts });   // 폰에서 추가한 계정 → 수집 대상에 반영
+    if (changed) await set({ [KEYS.ACCOUNTS]: accounts });
   } catch (_) { /* 서버 꺼져 있어도 무시 */ }
 }
 let lastPrefsFetch = 0;
