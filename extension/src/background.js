@@ -157,13 +157,32 @@ async function applyServerReviews() {
     if (changed) await set({ [KEYS.POSTS]: next });
   } catch (_) { /* 서버 꺼져 있어도 무시 */ }
 }
+// 폰에서 추가한 레퍼런스 계정(/refaccounts)을 가져와 수집 대상(레퍼런스 계정)으로 등록한다.
+async function applyServerRefAccounts() {
+  try {
+    const r = await fetch('http://127.0.0.1:8790/refaccounts');
+    if (!r.ok) return;
+    const handles = await r.json();   // ["uncle_woo_curry", ...]
+    if (!Array.isArray(handles) || !handles.length) return;
+    const raw = await chrome.storage.local.get([KEYS.ACCOUNTS]);
+    const accounts = raw[KEYS.ACCOUNTS] || [];
+    const have = new Set(accounts.map((a) => normalizeHandle(a.username)));
+    let added = 0;
+    for (const h of handles) {
+      const nh = normalizeHandle(h);
+      if (nh && !have.has(nh)) { accounts.push(makeSeedAccount(nh, 'reference')); have.add(nh); added += 1; }
+    }
+    if (added) await set({ [KEYS.ACCOUNTS]: accounts });   // 폰에서 추가한 계정 → 수집 대상에 반영
+  } catch (_) { /* 서버 꺼져 있어도 무시 */ }
+}
 let lastPrefsFetch = 0;
 function maybeFetchPrefs() {
   const now = Date.now();
   if (now - lastPrefsFetch < 600000) return;   // 10분마다
   lastPrefsFetch = now;
   applyServerPrefs();
-  applyServerReviews();   // 폰 채택/거부를 대시보드에도 반영
+  applyServerReviews();        // 폰 채택/거부를 대시보드에도 반영
+  applyServerRefAccounts();    // 폰에서 추가한 레퍼런스 계정을 수집 대상에 등록
 }
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -173,8 +192,9 @@ chrome.runtime.onInstalled.addListener(() => {
   setTimeout(bulkSyncToServer, 3000);
   setTimeout(applyServerPrefs, 5000);
   setTimeout(applyServerReviews, 6000);
+  setTimeout(applyServerRefAccounts, 7000);
 });
-chrome.runtime.onStartup?.addListener?.(() => { setTimeout(bulkSyncToServer, 3000); setTimeout(applyServerPrefs, 5000); setTimeout(applyServerReviews, 6000); });
+chrome.runtime.onStartup?.addListener?.(() => { setTimeout(bulkSyncToServer, 3000); setTimeout(applyServerPrefs, 5000); setTimeout(applyServerReviews, 6000); setTimeout(applyServerRefAccounts, 7000); });
 chrome.runtime.onStartup?.addListener?.(() => {
   ensureAccountsSeeded();
   applyRecommendedTuning();
