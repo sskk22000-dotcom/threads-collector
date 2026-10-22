@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 분산 수집 노드(집 메인이 아닌 컴퓨터)에서 10분마다 수집분을 공용 저장소로 push.
+     설치:  cp 이 파일 ~/Library/LaunchAgents/  후  경로의 __USER__ 를 실제 사용자명으로 바꾸고
+            launchctl load ~/Library/LaunchAgents/com.banchanddel.collectpush.plist -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.banchanddel.collectpush</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/__USER__/projects/threads-collector/collector-node/collect_push.sh</string>
+  </array>
+  <key>StartInterval</key><integer>600</integer>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>/Users/__USER__/threads-collector/collectpush.log</string>
+  <key>StandardErrorPath</key><string>/Users/__USER__/threads-collector/collectpush.err</string>
+</dict>
+</plist>

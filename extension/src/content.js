@@ -38,6 +38,7 @@
   let syncTimer = null;
   let stopped = false;
   let observer = null;
+  let staleScans = 0;   // 프로필에서 '새 글 0 · 이미 본 글만' 연속 횟수 (본 글 재스크롤 방지)
 
   /* ------------------------------------------------------------ 생존 확인 */
 
@@ -378,6 +379,34 @@
       const entry = found.get(m.id);
       if (entry) mark(entry.container, m.hits);
     }
+
+    // 본 글 재스크롤 방지(효율 극대화): 프로필에서 '새 글 0 · 이미 수집한 글만' 보이는
+    // 스캔이 연속되면 이미 다 본 구간이므로 즉시 다음 소스로 넘어간다.
+    // 첫 방문은 전부 새 글이라 끝까지 긁고, 재방문 땐 맨 위 새 글만 보고 빠진다.
+    if (isProfilePage() && res.scanned > 0) {
+      if ((res.newCount || 0) === 0 && (res.knownCount || 0) > 0) {
+        staleScans += 1;
+        if (staleScans >= (settings.staleRotateScans || 2)) { staleScans = 0; earlyRotate(); return; }
+      } else if ((res.newCount || 0) > 0) {
+        staleScans = 0;
+      }
+    }
+  }
+
+  /** 지금 보는 페이지가 계정 프로필(/@handle)인가? (피드 '/'·검색 '/search' 는 제외) */
+  function isProfilePage() {
+    return /^\/@[^/]+\/?$/.test(location.pathname);
+  }
+
+  /** 이미 다 본 프로필 — 타이머를 기다리지 않고 바로 다음 소스로 이동한다. */
+  async function earlyRotate() {
+    if (!contextAlive()) return shutdown('확장이 새로 로드됨');
+    if (stopped || !settings.collecting || !settings.rotate) return;
+    if (userIsBusy()) return;   // 사용자가 보고 있으면 끌고 가지 않는다(타이머가 알아서 처리)
+    clearTimeout(rotateTimer);
+    let res;
+    try { res = await chrome.runtime.sendMessage({ type: 'ROTATION_NEXT' }); } catch { return; }
+    if (res && res.next) location.assign(res.next.url);
   }
 
   function scheduleScan(delay = 400) {

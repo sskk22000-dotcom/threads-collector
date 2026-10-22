@@ -30,6 +30,18 @@ export const DEFAULT_SETTINGS = {
   rotateAccounts: true,   // 순회에 등록 계정(내 계정·레퍼런스) 포함
   accountPasses: 3,       // 계정 한 곳을 몇 바퀴 돌면 '수집 완료'로 볼지 (스로틀 때문에 여러 바퀴 누적)
   rotateRandomWhenDone: true, // 모든 계정이 목표 바퀴를 채우면 랜덤 재방문으로 전환
+
+  // ── 여러 컴퓨터 분산 수집 (IP당 1대 권장) ──
+  // 각 컴퓨터에 서로 다른 shardId(0..shardCount-1)를 주면, 계정/검색어를 해시로 나눠
+  // 자기 몫만 돈다. 같은 글을 여러 컴퓨터가 중복 수집하지 않게 한다. shardCount=1이면 분할 안 함.
+  shardId: 0,
+  shardCount: 1,
+
+  // ── 본 글 재스크롤 방지 (효율 극대화) ──
+  // 프로필을 돌다가 '새 글 0건'인 스캔이 이만큼 연속이면, 이미 다 본 구간으로 보고
+  // 바로 다음 소스로 넘어간다. 첫 방문은 끝까지 긁고, 이후엔 맨 위 새 글만 보고 빠진다.
+  staleRotateScans: 2,
+
   highlight: true,        // 매칭된 글을 페이지에서 표시
   suggestEvery: 60,       // 스캔 N건마다 키워드 후보 재계산
   maxPosts: 5000,         // 보관 상한 (넘으면 오래된 것부터 버림)

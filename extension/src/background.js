@@ -69,7 +69,7 @@ async function ensureAccountsSeeded() {
 
 // 사람처럼 안 걸리게 도는 기준값을 한 번만 자동 적용한다(사용자가 손 안 대도 되게).
 // 불규칙(0.6~1.8배, 가끔 길게 쉼)은 content.js 가 매 동작마다 흔든다. 여기선 기준값만 정한다.
-const TUNING_VERSION = 2;
+const TUNING_VERSION = 3;
 async function applyRecommendedTuning() {
   const raw = await chrome.storage.local.get([KEYS.SETTINGS, 'tuningVersion']);
   if (raw.tuningVersion === TUNING_VERSION) return;
@@ -77,13 +77,14 @@ async function applyRecommendedTuning() {
   const tuned = {
     ...cur,
     autoScroll: true,
-    autoScrollDelayMs: 4000,        // 실제 2.4~7.2초 간격 + 가끔 더 길게 쉼
+    autoScrollDelayMs: 3000,        // 실제 1.8~5.4초 간격 + 가끔 더 길게 쉼 (약간 완화, 여전히 사람 범위)
     rotate: true,
     rotateAccounts: true,
     rotateFeed: true,
     accountPasses: 3,
     rotateRandomWhenDone: true,
-    rotateDwellMs: 110000,          // 한 곳에 77~154초 머무름
+    rotateDwellMs: 80000,           // 한 곳에 56~112초 머무름 (완화)
+    staleRotateScans: Math.max(2, Number(cur.staleRotateScans) || 2),  // 본 글 재스크롤 방지
     collectReplies: true,           // 답글은 원글 찾는 신호로만 사용
     postsOnly: true,                // 실제 저장은 원글만
     koreanOnly: true,
@@ -418,6 +419,8 @@ async function handlePosts(incoming) {
   let posts = state.posts;
   const byId = new Map(posts.map((p) => [p.id, p]));
   const matched = [];
+  let newCount = 0;   // 이번 배치에서 '새로' 저장된 원글 수 (early-stop 판단용)
+  let knownCount = 0; // 이번 배치에서 '이미 저장돼 있던' 원글 수 (본 글 재스크롤 감지용)
   const corpus = state.corpus;
   const parentQueue = new Set(state.parentQueue);
 
@@ -549,6 +552,8 @@ async function handlePosts(incoming) {
           pending: false
         });
         parentQueue.delete(post.id);
+      } else if (!existing.pending) {
+        knownCount += 1;   // 이미 수집해 둔 실제 원글을 또 봄 → 재스크롤 신호
       }
       continue;
     }
@@ -581,6 +586,7 @@ async function handlePosts(incoming) {
     };
     posts.push(record);
     byId.set(post.id, record);
+    newCount += 1;
     state.stats.matched += 1;
 
     // 모든 수집글을 서버로 보낸다(폰 검토앱 동기화 + 레퍼런스는 슬랙 풀).
@@ -638,7 +644,7 @@ async function handlePosts(incoming) {
     for (const r of refOut) (byAcct[r.account] = byAcct[r.account] || []).push(r);
     for (const [h, items] of Object.entries(byAcct)) postReference(h, items);
   }
-  return { matched };
+  return { matched, newCount, knownCount, scanned: incoming.length };
 }
 
 function mergeSuggestions(previous, fresh) {
@@ -988,13 +994,26 @@ const handlers = {
     const useAccounts = settings.rotateAccounts !== false;
     const randomWhenDone = settings.rotateRandomWhenDone !== false;
 
+    // 여러 컴퓨터 분산 수집: 이 컴퓨터(shardId)가 맡은 소스만 돈다.
+    // 해시는 소스 고유키(계정명/검색어)에만 의존 → 다른 계정을 추가/삭제해도 재배치 안 됨.
+    const shardCount = Math.max(1, Number(settings.shardCount) || 1);
+    const shardId = ((Number(settings.shardId) || 0) % shardCount + shardCount) % shardCount;
+    const mine = (key) => {
+      if (shardCount <= 1) return true;
+      let h = 0; const s = String(key);
+      for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+      return (((h % shardCount) + shardCount) % shardCount) === shardId;
+    };
+
     const feedSources = [];
-    if (settings.rotateFeed !== false) {
+    if (settings.rotateFeed !== false && mine('__feed__')) {
       feedSources.push({ type: 'feed', label: '추천 피드', url: 'https://www.threads.com/' });
     }
-    const searchSources = (searchTerms || []).map((t) => ({
-      type: 'search', label: `검색: ${t.value}`, url: searchUrl(t.value)
-    }));
+    const searchSources = (searchTerms || [])
+      .filter((t) => mine('search:' + t.value))
+      .map((t) => ({
+        type: 'search', label: `검색: ${t.value}`, url: searchUrl(t.value)
+      }));
     const acctSources = useAccounts ? (accounts || []).map((a) => ({
       type: 'account',
       username: normalizeHandle(a.username),
@@ -1003,7 +1022,7 @@ const handlers = {
       kind: accountKind(a),
       priority: accountPriority(a),
       visits: Number(a.visits) || 0
-    })).filter((s) => s.username) : [];
+    })).filter((s) => s.username && mine('acct:' + s.username)) : [];
 
     const allSources = [...acctSources, ...feedSources, ...searchSources];
     if (!allSources.length) return { sources: [], next: null };
