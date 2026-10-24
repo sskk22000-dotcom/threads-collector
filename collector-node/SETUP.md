@@ -57,8 +57,27 @@ cd ~/threads-collector/shared && mkdir -p incoming && touch incoming/.keep && gi
    });
    ```
    > 집 아이맥(shardId=0)에서도 같은 `shardCount` 로 맞춰 준다.
-5. **push 자동화**: `collector-node/com.banchanddel.collectpush.plist` 의 `__USER__` 를 실제 사용자명으로
-   바꿔 `~/Library/LaunchAgents/` 에 넣고 `launchctl load` → 10분마다 공용 저장소로 올라간다.
+5. **push 자동화** (10분마다 공용 저장소로 올림):
+   - **맥**: `collector-node/com.banchanddel.collectpush.plist` 의 `__USER__` 를 실제 사용자명으로
+     바꿔 `~/Library/LaunchAgents/` 에 넣고 `launchctl load`.
+   - **윈도우/맥 공용(권장, 매장 PC)**: 파이썬 데몬 하나면 끝.
+     ```
+     python collect_daemon.py
+     ```
+     켜두면 10분마다 자동 push. 창을 닫아도 돌게 하려면:
+     - 윈도우: 작업 스케줄러(Task Scheduler)에 "로그온 시 시작 / `python ...\collector-node\collect_daemon.py`" 등록.
+     - 맥: 위 launchd 사용, 또는 `nohup python3 collect_daemon.py &`.
+     > 데몬이 `shared/nodes/<host>.json` 에 heartbeat 를 남겨, 어느 컴퓨터가 살아있는지 서로 보인다.
+
+## 매장 PC(윈도우) 빠른 절차
+1. [Git](https://git-scm.com) · [Python](https://python.org) · Chrome 설치.
+2. `git clone https://github.com/sskk22000-dotcom/threads-collector.git %USERPROFILE%\projects\threads-collector`
+   `git clone https://github.com/sskk22000-dotcom/threads-collected.git %USERPROFILE%\threads-collector\shared`
+3. Chrome `chrome://extensions` → 개발자 모드 → 압축해제 로드 → `...\projects\threads-collector\extension`.
+   매장용 **스레드 계정으로 로그인**.
+4. 로컬 서버 실행: `python %USERPROFILE%\threads-collector\reference_server.py` (계속 켜둠).
+5. 확장 서비스워커 콘솔에서 샤드 지정: `shardId=1, shardCount=2` (집 아이맥은 0/2).
+6. `python %USERPROFILE%\projects\threads-collector\collector-node\collect_daemon.py` 실행(작업 스케줄러 등록 권장).
 
 ## 3. 집 아이맥(메인)에서 합치기
 
