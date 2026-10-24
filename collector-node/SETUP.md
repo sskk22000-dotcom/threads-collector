@@ -1,5 +1,32 @@
 # 여러 컴퓨터로 나눠 수집하기 (분산 수집)
 
+## 우리 구성 (3대) — 복붙용
+
+| 컴퓨터 | OS | shardId | shardCount | 역할 |
+|---|---|---|---|---|
+| 집 아이맥(메인) | 맥 | **0** | 3 | 수집 + 공유분 받아 폰앱으로 합침 |
+| 매장 PC | 윈도우 | **1** | 3 | 수집 → git push |
+| 세번째 PC | 윈도우 | **2** | 3 | 수집 → git push |
+
+각 컴퓨터의 **크롬 → `chrome://extensions` → 수집기 "서비스 워커" 클릭 → 콘솔**에 아래를 붙여넣기(컴퓨터마다 shardId만 다름):
+
+```js
+// 집 아이맥 = 0, 매장 = 1, 세번째 = 2  (shardCount 는 셋 다 3)
+chrome.storage.local.get('settings', r => {
+  const s = r.settings || {};
+  s.shardId = 0;        // ← 이 컴퓨터 번호로 바꾸기 (0 / 1 / 2)
+  s.shardCount = 3;
+  chrome.storage.local.set({ settings: s }, () => console.log('shard', s.shardId, '/', s.shardCount));
+});
+```
+
+> ⚠️ **부분 가동 주의:** shardCount=3 이면 각 컴퓨터는 계정의 1/3 만 돈다. **3대가 다 켜져 있어야** 전부 수집된다.
+> 일부만 켤 거면, 켜는 대수에 맞춰 `shardCount` 를 낮춰라(예: 집만 돌릴 땐 집을 `shardCount=1`).
+> `shared/nodes/<host>.json` heartbeat 로 어느 컴퓨터가 살아있는지 확인할 수 있다.
+
+---
+
+
 Threads 수집은 **봇 감지 회피 때문에 일부러 느리게** 돈다. 더 빨리 모으려면
 **컴퓨터(= IP)를 늘리는 게 정답**이다. 한 IP에 여러 계정을 돌리면 차단 위험만 커지고
 효과는 금방 한계에 부딪힌다. **IP 1개 = 컴퓨터 1대 = 스레드 계정 1개 = 수집 크롬 1개**가 최적.
