@@ -6,6 +6,8 @@ import { suggestKeywords } from './suggest.js';
 import { ACCOUNT_GROUP, OWN_GROUP, findAccount, normalizeHandle, normalizeSearchTerm, searchUrl, profileUrl, accountKind, groupForAccount, accountPriority } from './accounts.js';
 import { parseCount, shouldCollect } from './counts.js';
 import { decideCollect, SKIP_REPLY } from './rules.js';
+import { REELS_KEY, REEL_DEFAULTS, readReels, writeReels, mergeReel,
+  accountMedians, nextToEnrich, toWorkshopRows, verdictOf, commentRate, isBigReach } from './reels.js';
 
 const CORPUS_MAX = 400;
 const KIND_LABEL = { post: '글', reply: '답글', unknown: '판별 불가' };
@@ -720,6 +722,59 @@ async function exportData(format, filterGroup, ids) {
 /* --------------------------------------------------------------- 메시지 */
 
 const handlers = {
+
+  /* ───────── 인스타 릴스 ─────────
+     터진 것만 남긴다. 그리드에서 조회수를 먼저 보고, 그중 큰 것만 상세를 열어
+     댓글을 채운다. 조회수가 커도 댓글이 없으면 '도달형'이라 베낄 게 못 된다. */
+  IG_REELS: async (msg) => {
+    const map = await readReels();
+    let added = 0;
+    (msg.reels || []).forEach((r) => {
+      if (!r.code) return;
+      if (!map[r.code]) added += 1;
+      map[r.code] = mergeReel(map[r.code], r);
+    });
+    await writeReels(map);
+    return { ok: true, added, total: Object.keys(map).length };
+  },
+
+  IG_REEL_DETAIL: async (msg) => {
+    const r = msg.reel || {};
+    if (!r.code) return { ok: false };
+    const map = await readReels();
+    // 댓글을 못 읽었으면 0 이 아니라 '아직 모름'으로 둬야 다음에 다시 열어본다
+    const next = { ...r };
+    if (next.cmt === null || next.cmt === undefined) delete next.cmt;
+    map[r.code] = mergeReel(map[r.code], next);
+    await writeReels(map);
+    return { ok: true, code: r.code };
+  },
+
+  IG_NEXT: async () => {
+    const map = await readReels();
+    const [pick] = nextToEnrich(map, 1);
+    if (!pick) return { url: null };
+    return { url: 'https://www.instagram.com/' + pick.acct + '/reel/' + pick.code + '/' };
+  },
+
+  GET_REELS: async () => {
+    const map = await readReels();
+    const med = accountMedians(map);
+    const rows = Object.values(map).map((r) => ({
+      ...r, rate: commentRate(r), verdict: verdictOf(r, med[r.acct])
+    })).sort((a, b) => (b.views || 0) - (a.views || 0));
+    const byVerdict = {};
+    rows.forEach((r) => { byVerdict[r.verdict] = (byVerdict[r.verdict] || 0) + 1; });
+    return { rows, byVerdict, medians: med, total: rows.length,
+             pending: nextToEnrich(map, 999).length };
+  },
+
+  EXPORT_REELS: async () => {
+    const map = await readReels();
+    return { rows: toWorkshopRows(map) };
+  },
+
+  CLEAR_REELS: async () => { await writeReels({}); return { ok: true }; },
   POSTS: (msg) => handlePosts(msg.posts || []),
 
   GET_STATE: async () => {

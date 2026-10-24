@@ -268,6 +268,7 @@ function renderFilterOptions() {
 
 function renderAll() {
   renderHeader();
+  renderReels();
   renderSettings();
   renderGroups();
   renderSearchTerms();
@@ -501,4 +502,36 @@ $('#openThreads').addEventListener('click', (e) => {
 const WATCHED = ['posts', 'stats', 'suggestions', 'groups', 'accounts', 'searchTerms', 'settings'];
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && WATCHED.some((k) => k in changes)) refresh();
+});
+
+/* ---------- 인스타 릴스 ---------- */
+async function renderReels() {
+  const box = document.getElementById('reelStat');
+  if (!box) return;
+  let r;
+  try { r = await send({ type: 'GET_REELS' }); } catch { return; }
+  if (!r || r.error) return;
+  const v = r.byVerdict || {};
+  const part = ['둘 다', '전환형', '도달형', '미확인', '약함']
+    .filter((k) => v[k]).map((k) => k + ' ' + v[k]).join(' · ');
+  box.textContent = '릴스 ' + (r.total || 0) + '건' +
+    (part ? ' — ' + part : '') +
+    (r.pending ? ' · 상세 볼 것 ' + r.pending + '건' : '');
+}
+
+document.getElementById('reelNext')?.addEventListener('click', async () => {
+  const r = await send({ type: 'IG_NEXT' });
+  if (r && r.url) chrome.tabs.create({ url: r.url });
+  else alert('상세를 열어볼 릴스가 없습니다. 프로필 릴스 탭을 먼저 긁어주세요.');
+});
+document.getElementById('reelExport')?.addEventListener('click', async () => {
+  const r = await send({ type: 'EXPORT_REELS' });
+  const blob = new Blob([JSON.stringify(r.rows || [], null, 1)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  chrome.downloads.download({ url, filename: 'reels_reference.json' });
+});
+document.getElementById('reelClear')?.addEventListener('click', async () => {
+  if (!confirm('모은 릴스를 전부 지웁니다. 계속할까요?')) return;
+  await send({ type: 'CLEAR_REELS' });
+  renderReels();
 });

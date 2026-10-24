@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "쓰레드 레퍼런스 수집기",
-  "version": "3.10.2",
-  "description": "구매 문의 댓글이 달린 쓰레드 판매자 글을 찾아 모으는 레퍼런스 수집기.",
+  "version": "3.11.0",
+  "description": "구매 문의 댓글이 달린 쓰레드 판매자 글과, 터진 인스타 릴스를 모으는 레퍼런스 수집기.",
   "permissions": [
     "storage",
     "unlimitedStorage",
@@ -15,7 +15,9 @@
     "https://threads.com/*",
     "https://www.threads.net/*",
     "https://threads.net/*",
-    "http://127.0.0.1:8790/*"
+    "http://127.0.0.1:8790/*",
+    "https://www.instagram.com/*",
+    "https://instagram.com/*"
   ],
   "background": {
     "service_worker": "src/background.js",
@@ -34,6 +36,16 @@
       ],
       "css": [
         "src/content.css"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.instagram.com/*",
+        "https://instagram.com/*"
+      ],
+      "js": [
+        "src/ig_content.js"
       ],
       "run_at": "document_idle"
     }
