@@ -3,6 +3,8 @@
 이 저장소는 **구매문의 댓글이 달린 판매자 글을 찾아주는 크롬 확장(MV3)** 이다.
 너(코덱스)는 사장님(제이슨) 대신 이 repo에서 혼자 작업할 수 있어야 한다.
 
+**▶ 이어서 할 작업은 [docs/코덱스-이어하기.md](docs/코덱스-이어하기.md)를 먼저 봐라 (작업명·현재상태·다음 할 일).**
+
 전체 설명 [README.md](README.md) · 분산 수집 [collector-node/SETUP.md](collector-node/SETUP.md) ·
 키워드 [docs/KEYWORDS.md](docs/KEYWORDS.md) · 화면 [docs/USAGE.md](docs/USAGE.md). **작업 전 README를 먼저 읽어라.**
 
